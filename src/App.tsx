@@ -300,10 +300,10 @@ const App: React.FC = () => {
     }, 0);
   }, [videos]);
 
-  const handleRemoveVideo = useCallback((id: string) => {
+  const handleRemoveVideo = useCallback((id: string) => { setVideos(prev => { const filtered = prev.filter(v => v.id !== id); saveLibrary({ videos: filtered, categories, categoryColors, version: LIBRARY_VERSION }); return filtered; });
     // Immediately save to Firebase with video removed
     const filtered = videos.filter(v => v.id !== id);
-    saveLibrary({ videos: filtered, categories, categoryColors, version: LIBRARY_VERSION }).catch(e => console.error('Save failed:', e));
+    
     setVideos(prev => {
       const filtered = prev.filter(v => v.id !== id);
       if (currentVideoId === id) {
