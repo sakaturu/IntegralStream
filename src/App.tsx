@@ -72,6 +72,7 @@ const App: React.FC = () => {
   });
   
   const [profilePic, setProfilePic] = useState<string>(() => localStorage.getItem('integral_profile_pic') || '');
+  const [isLoaded, setIsLoaded] = useState(false);
   const [currentUser, setCurrentUser] = useState<string>(() => {
     return localStorage.getItem(USER_KEY) || MASTER_IDENTITY;
   });
@@ -110,7 +111,7 @@ const App: React.FC = () => {
 
 
 
-  // On mount: load user favorites from Firebase
+  // On mount: always load from Firebase as source of truth
   useEffect(() => {
     loadLibrary().then(data => {
       if (data && data.videos && data.videos.length > 0) {
@@ -118,7 +119,8 @@ const App: React.FC = () => {
         if (data.categories) setCategories(data.categories);
         if (data.categoryColors) setCategoryColors(data.categoryColors);
       }
-    }).catch(() => {});
+      setIsLoaded(true);
+    }).catch(() => { setIsLoaded(true); });
     const unsub = subscribeToLibrary(() => {});
     if (currentUser && currentUser !== MASTER_IDENTITY) {
       loadUserData(currentUser).then(data => {
@@ -277,6 +279,7 @@ const App: React.FC = () => {
   const [currentVideoId, setCurrentVideoId] = useState<string | undefined>(videos[0]?.id);
 
   useEffect(() => {
+    if (!isLoaded) return;
     localStorage.setItem(DATA_KEY, JSON.stringify(videos));
     localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString());
     localStorage.setItem(AUTH_KEY, isAuthorized ? 'true' : 'false');
@@ -289,7 +292,7 @@ const App: React.FC = () => {
       categoryColors,
       version: LIBRARY_VERSION,
     }).catch(() => {});
-  }, [videos, isAuthorized, categories, categoryColors]);
+  }, [videos, isAuthorized, categories, categoryColors, isLoaded]);
 
   const currentUserFavorites = useMemo(() => userFavMap[currentUser] || [], [userFavMap, currentUser]);
   const vaultCount = useMemo(() => currentUserFavorites.length, [currentUserFavorites]);
@@ -300,16 +303,15 @@ const App: React.FC = () => {
     }, 0);
   }, [videos]);
 
-  const handleRemoveVideo = useCallback((id: string) => { setVideos(prev => { const filtered = prev.filter(v => v.id !== id); saveLibrary({ videos: filtered, categories, categoryColors, version: LIBRARY_VERSION }); return filtered; });
-    // Immediately save to Firebase with video removed
-    const filtered = videos.filter(v => v.id !== id);
-    
+  const handleRemoveVideo = useCallback((id: string) => {
     setVideos(prev => {
       const filtered = prev.filter(v => v.id !== id);
       if (currentVideoId === id) {
         setIsPlaying(false);
         setCurrentVideoId(filtered.length > 0 ? filtered[0].id : undefined);
       }
+      // Save to Firebase immediately so it persists on refresh
+      saveLibrary({ videos: filtered, categories, categoryColors, version: LIBRARY_VERSION }).catch(() => {});
       return filtered;
     });
     setUserFavMap(prev => {
@@ -317,9 +319,8 @@ const App: React.FC = () => {
       Object.keys(next).forEach(u => { next[u] = (next[u] || []).filter(fid => fid !== id); });
       return next;
     });
-    // If vault becomes empty after delete, close it
     setActiveSecondaryView(prev => prev === 'vault' ? 'none' : prev);
-  }, [currentVideoId]);
+  }, [currentVideoId, categories, categoryColors]);
 
   const handleManualAdd = useCallback((u: string, p: string, c: VideoCategory) => {
     const nv: VideoItem = { id: `m-${Date.now()}`, url: u, prompt: p, category: c, isFavorite: false, viewCount: 0, likeCount: 0, dislikeCount: 0, status: 'ready', timestamp: Date.now(), rating: 0, isLiked: false, isDisliked: false, reviews: [] };
@@ -340,7 +341,7 @@ const App: React.FC = () => {
         ? userFavs.filter(fid => fid !== id) 
         : [...userFavs, id];
       // Sync this user's favorites to Firebase immediately
-      saveUserData(currentUser, { favorites: updatedFavs }).catch(() => {});
+      updateUserFavorites(currentUser, updatedFavs).catch(() => {});
       return { 
         ...prev, 
         [currentUser]: updatedFavs 
@@ -534,6 +535,8 @@ const App: React.FC = () => {
             isIdentityLocked={isUserLocked}
             onClose={() => isUserLocked && setShowLoginOverlay(false)} 
             defaultName={currentUser !== MASTER_IDENTITY ? currentUser : ''}
+            profilePic={profilePic}
+            onProfilePicChange={setProfilePic}
           />
         </div>
       )}
