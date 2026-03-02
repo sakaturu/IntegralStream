@@ -71,7 +71,7 @@ const App: React.FC = () => {
     return localStorage.getItem(AUTH_KEY) === 'true';
   });
   
-  const [profilePic, setProfilePic] = useState<string>(() => localStorage.getItem('integral_profile_pic') || '');
+  const [profilePic, setProfilePic] = useState<string>(() => localStorage.getItem(`integral_profile_pic_${localStorage.getItem('integral_active_user_v6') || 'default'}`) || '');
   const [isLoaded, setIsLoaded] = useState(false);
   const [currentUser, setCurrentUser] = useState<string>(() => {
     return localStorage.getItem(USER_KEY) || MASTER_IDENTITY;
@@ -129,8 +129,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (profilePic) localStorage.setItem('integral_profile_pic', profilePic);
-  }, [profilePic]);
+    if (profilePic) localStorage.setItem(`integral_profile_pic_${currentUser}`, profilePic);
+  }, [profilePic, currentUser]);
 
   useEffect(() => {
     localStorage.setItem(USER_KEY, currentUser);
@@ -144,6 +144,7 @@ const App: React.FC = () => {
 
   const handleIdentify = (name: string, remember: boolean) => {
     const cleanName = name.trim().toUpperCase().replace(/\s+/g, '_');
+    setProfilePic(localStorage.getItem(`integral_profile_pic_${cleanName}`) || '');
     if (cleanName) {
       setCurrentUser(cleanName);
       setIsUserLocked(true);
@@ -388,7 +389,9 @@ const App: React.FC = () => {
 
       <header className="h-20 flex-shrink-0 border-b border-white/5 bg-black/40 backdrop-blur-xl flex items-center justify-between px-8 z-50">
         <div className="flex items-center gap-4 cursor-pointer" onClick={() => setActiveSecondaryView('none')}>
-          <IntegralLogo />
+          <div className="hover:rotate-[360deg] transition-transform duration-700 ease-in-out">
+            <IntegralLogo />
+          </div>
           <div className="flex flex-col">
             <h1 className="font-black text-xl uppercase tracking-tighter leading-none text-blue-600">IntegralStream</h1>
             <div className="flex items-center gap-2 mt-1">
