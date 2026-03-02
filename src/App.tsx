@@ -129,7 +129,10 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (profilePic) localStorage.setItem(`integral_profile_pic_${currentUser}`, profilePic);
+    if (profilePic) {
+      localStorage.setItem(`integral_profile_pic_${currentUser}`, profilePic);
+      saveUserData(currentUser, { profilePic }).catch(() => {});
+    }
   }, [profilePic, currentUser]);
 
   useEffect(() => {
@@ -144,7 +147,16 @@ const App: React.FC = () => {
 
   const handleIdentify = (name: string, remember: boolean) => {
     const cleanName = name.trim().toUpperCase().replace(/\s+/g, '_');
-    setProfilePic(localStorage.getItem(`integral_profile_pic_${cleanName}`) || '');
+    const localPic = localStorage.getItem(`integral_profile_pic_${cleanName}`) || '';
+    setProfilePic(localPic);
+    if (!localPic) {
+      loadUserData(cleanName).then(data => {
+        if (data?.profilePic) {
+          setProfilePic(data.profilePic);
+          localStorage.setItem(`integral_profile_pic_${cleanName}`, data.profilePic);
+        }
+      }).catch(() => {});
+    }
     if (cleanName) {
       setCurrentUser(cleanName);
       setIsUserLocked(true);
@@ -167,8 +179,11 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    setIsPlaying(false);
+    setCurrentVideoId(undefined);
     setCurrentUser(MASTER_IDENTITY);
     setIsUserLocked(false);
+    setProfilePic('');
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(USER_LOCKED_KEY);
     setActiveSecondaryView('none');
@@ -313,8 +328,8 @@ const App: React.FC = () => {
     setActiveSecondaryView(prev => prev === 'vault' ? 'none' : prev);
   }, [currentVideoId, categories, categoryColors]);
 
-  const handleManualAdd = useCallback((u: string, p: string, c: VideoCategory) => {
-    const nv: VideoItem = { id: `m-${Date.now()}`, url: u, prompt: p, category: c, isFavorite: false, viewCount: 0, likeCount: 0, dislikeCount: 0, status: 'ready', timestamp: Date.now(), rating: 0, isLiked: false, isDisliked: false, reviews: [] };
+  const handleManualAdd = useCallback((u: string, p: string, c: VideoCategory, mediaType: 'video' | 'music' = 'video') => {
+    const nv: VideoItem = { id: `m-${Date.now()}`, url: u, prompt: p, category: c, mediaType, isFavorite: false, viewCount: 0, likeCount: 0, dislikeCount: 0, status: 'ready', timestamp: Date.now(), rating: 0, isLiked: false, isDisliked: false, reviews: [] };
     setVideos(prev => [nv, ...prev]);
     if (!currentVideoId) setCurrentVideoId(nv.id);
   }, [currentVideoId]);
@@ -350,14 +365,14 @@ const App: React.FC = () => {
       return updated;
     });
   }, [categories, categoryColors]);
-  const handleSelectVideo = useCallback((v: VideoItem) => { setCurrentVideoId(v.id); setTimeout(() => setIsPlaying(true), 100); }, []);
+  const handleSelectVideo = useCallback((v: VideoItem) => { if (currentVideoId === v.id) { setIsPlaying(prev => !prev); } else { setCurrentVideoId(v.id); setIsPlaying(true); } }, [currentVideoId]);
 
   const handleShuffle = useCallback(() => {
     if (videos.length === 0) return;
     const randomIndex = Math.floor(Math.random() * videos.length);
     const randomVideo = videos[randomIndex];
     setCurrentVideoId(randomVideo.id);
-    setTimeout(() => setIsPlaying(true), 100);
+    setIsPlaying(true);
   }, [videos]);
 
   const handleAddCategory = (name: string, color?: string) => { if (!categories.includes(name)) { setCategories(prev => [...prev, name]); setCategoryColors(prev => ({ ...prev, [name]: color || '#94a3b8' })); } };
