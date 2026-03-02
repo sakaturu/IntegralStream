@@ -43,7 +43,6 @@ const Playlist: React.FC<PlaylistProps> = ({
   onMoveVideo,
   onMoveToFavPick = () => {},
   onShuffle = () => {},
-  onAddRandom,
   isGeneratingRandom = false,
   onAddManualVideo,
   onAddCategory,
@@ -224,9 +223,6 @@ const Playlist: React.FC<PlaylistProps> = ({
                 <i className="fa-solid fa-eraser text-[11px]"></i>
               </button>
             )}
-            <button onClick={onAddRandom} title="Surprise Video" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
-              <i className="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
-            </button>
             <button onClick={onShuffle} title="Shuffle Mode" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
               <i className="fa-solid fa-shuffle text-[11px]"></i>
             </button>

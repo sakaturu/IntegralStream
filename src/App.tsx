@@ -391,8 +391,13 @@ const App: React.FC = () => {
     if (videos.length === 0) return;
     const randomIndex = Math.floor(Math.random() * videos.length);
     const randomVideo = videos[randomIndex];
+    // Move selected video to top of list
+    setVideos(prev => {
+      const others = prev.filter(v => v.id !== randomVideo.id);
+      return [randomVideo, ...others];
+    });
     setCurrentVideoId(randomVideo.id);
-    setIsPlaying(true);
+    setTimeout(() => setIsPlaying(true), 100);
   }, [videos]);
 
   const handleAddCategory = (name: string, color?: string) => { if (!categories.includes(name)) { setCategories(prev => [...prev, name]); setCategoryColors(prev => ({ ...prev, [name]: color || '#94a3b8' })); } };
@@ -515,12 +520,23 @@ const App: React.FC = () => {
               <h2 className="text-blue-600 font-black uppercase text-[10px] tracking-[0.4em] flex items-center gap-3"><span className="w-1 h-4 bg-blue-600 rounded-full"></span>{currentVideo ? "Current Video Stream" : "Select Video"}</h2>
             </div>
             <div className="px-8 w-full" ref={playerContainerRef}>
-               <div className="w-full max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto">
-                {currentVideo ? (
-                  <VideoPlayer key={currentVideo.id} video={currentVideo} isFavorite={currentUserFavorites.includes(currentVideo.id)} isPlaying={isPlaying} onPlayStateChange={setIsPlaying} onToggleLike={() => handleToggleLike(currentVideo.id)} onToggleDislike={() => handleToggleDislike(currentVideo.id)} onToggleFavorite={() => handleToggleFavorite(currentVideo.id)} onViewIncrement={() => handleIncrementView(currentVideo.id)} onWriteReview={() => { setReviewInitialTab('Write'); setActiveSecondaryView('reviews'); }} />
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
-                )}
+               <div className="relative">
+                <div className="w-full max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" id="video-container">
+                  {currentVideo ? (
+                    <VideoPlayer key={currentVideo.id} video={currentVideo} isFavorite={currentUserFavorites.includes(currentVideo.id)} isPlaying={isPlaying} onPlayStateChange={setIsPlaying} onToggleLike={() => handleToggleLike(currentVideo.id)} onToggleDislike={() => handleToggleDislike(currentVideo.id)} onToggleFavorite={() => handleToggleFavorite(currentVideo.id)} onViewIncrement={() => handleIncrementView(currentVideo.id)} onWriteReview={() => { setReviewInitialTab('Write'); setActiveSecondaryView('reviews'); }} />
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
+                  )}
+                </div>
+                <div className="flex justify-end mt-2 pr-1">
+                  <button
+                    onClick={() => { const el = document.getElementById('video-container'); if (document.fullscreenElement) document.exitFullscreen(); else el?.requestFullscreen().catch(() => {}); }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-500 hover:text-white hover:bg-white/10 transition-all"
+                    title="Fullscreen"
+                  >
+                    <i className="fa-solid fa-expand text-xs"></i>
+                  </button>
+                </div>
               </div>
             </div>
             {currentVideo && (
