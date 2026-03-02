@@ -160,6 +160,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         >
           <i className={`fa-${isFavorite ? 'solid' : 'regular'} fa-heart text-lg drop-shadow-[0_0_2px_rgba(0,0,0,0.5)]`}></i>
         </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); if (document.fullscreenElement) document.exitFullscreen(); else containerRef.current?.requestFullscreen().catch(() => {}); }}
+          className="w-12 h-12 rounded-2xl glass border bg-black/40 border-white/10 text-slate-500 hover:text-white flex items-center justify-center transition-all hover:scale-110 active:scale-90"
+          title="Fullscreen"
+        >
+          <i className="fa-solid fa-expand text-lg"></i>
+        </button>
       </div>
 
       <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-20 transition-all duration-700 ease-out ${isHUDVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'}`}>

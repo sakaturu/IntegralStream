@@ -11,6 +11,8 @@ interface PlaylistProps {
   onToggleFavorite: (id: string) => void;
   userFavorites: string[];
   onMoveVideo: (id: string, direction: 'up' | 'down') => void;
+  onMoveToFavPick: (id: string) => void;
+  onAddRandom: () => void;
   onShuffle?: () => void;
   isGeneratingRandom?: boolean;
   onAddManualVideo: (url: string, prompt: string, category: VideoCategory, mediaType?: 'video' | 'music') => void;
@@ -39,8 +41,9 @@ const Playlist: React.FC<PlaylistProps> = ({
   onToggleFavorite, 
   userFavorites,
   onMoveVideo,
+  onMoveToFavPick = () => {},
   onShuffle = () => {},
-  onAddRandom = () => {},
+  onAddRandom,
   isGeneratingRandom = false,
   onAddManualVideo,
   onAddCategory,
@@ -221,7 +224,9 @@ const Playlist: React.FC<PlaylistProps> = ({
                 <i className="fa-solid fa-eraser text-[11px]"></i>
               </button>
             )}
-
+            <button onClick={onAddRandom} title="Surprise Video" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
+              <i className="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
+            </button>
             <button onClick={onShuffle} title="Shuffle Mode" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
               <i className="fa-solid fa-shuffle text-[11px]"></i>
             </button>
@@ -312,8 +317,8 @@ const Playlist: React.FC<PlaylistProps> = ({
         ) : filteredVideos.map((video) => {
           const isFavorited = userFavorites.includes(video.id);
           return (
-            <div key={video.id} onClick={() => onSelect(video)} className={`group flex items-center gap-3 p-3 rounded-2xl transition-all cursor-pointer border relative animate-fade-in pr-10 ${currentVideo?.id === video.id ? 'bg-white/5 border-white/10 shadow-lg' : 'bg-transparent border-transparent hover:bg-white/5'}`}>
-              <div className="absolute top-2 right-3 flex flex-col items-center gap-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div key={video.id} onClick={() => onSelect(video)} className={`group flex items-center gap-3 p-3 rounded-2xl transition-all cursor-pointer border relative animate-fade-in pr-10 ${currentVideo?.id === video.id ? 'bg-white/15 border-white/20 shadow-lg' : 'bg-transparent border-transparent hover:bg-white/5'}`}>
+              <div className="absolute top-2 right-3 flex flex-col items-center gap-0.5 z-30 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button 
                   onClick={(e) => { e.stopPropagation(); onToggleFavorite(video.id); }} 
                   className={`transition-all hover:scale-125 ${isFavorited ? 'text-[#ff3b3b] scale-110' : 'text-slate-600 hover:text-white'}`}
@@ -321,6 +326,15 @@ const Playlist: React.FC<PlaylistProps> = ({
                 >
                   <i className={`fa-${isFavorited ? 'solid' : 'regular'} fa-heart text-[16px]`}></i>
                 </button>
+                {isAuthorized && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onMoveToFavPick(video.id); }} 
+                    className="text-pink-400 hover:text-pink-300 transition-all hover:scale-125"
+                    title="Add to Fav. Pick"
+                  >
+                    <i className="fa-solid fa-plus text-[13px]"></i>
+                  </button>
+                )}
                 {isAuthorized && (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="text-red-500 transition-all hover:scale-125" title="Delete Video">
                     <i className="fa-solid fa-xmark text-[13px]"></i>
