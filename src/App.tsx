@@ -350,14 +350,14 @@ const App: React.FC = () => {
       return updated;
     });
   }, [categories, categoryColors]);
-  const handleSelectVideo = useCallback((v: VideoItem) => { if (currentVideoId === v.id) { setIsPlaying(prev => !prev); } else { setCurrentVideoId(v.id); setIsPlaying(true); } }, [currentVideoId]);
+  const handleSelectVideo = useCallback((v: VideoItem) => { setCurrentVideoId(v.id); setTimeout(() => setIsPlaying(true), 100); }, []);
 
   const handleShuffle = useCallback(() => {
     if (videos.length === 0) return;
     const randomIndex = Math.floor(Math.random() * videos.length);
     const randomVideo = videos[randomIndex];
     setCurrentVideoId(randomVideo.id);
-    setIsPlaying(true);
+    setTimeout(() => setIsPlaying(true), 100);
   }, [videos]);
 
   const handleAddCategory = (name: string, color?: string) => { if (!categories.includes(name)) { setCategories(prev => [...prev, name]); setCategoryColors(prev => ({ ...prev, [name]: color || '#94a3b8' })); } };

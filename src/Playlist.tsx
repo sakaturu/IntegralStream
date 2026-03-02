@@ -11,10 +11,9 @@ interface PlaylistProps {
   onToggleFavorite: (id: string) => void;
   userFavorites: string[];
   onMoveVideo: (id: string, direction: 'up' | 'down') => void;
-  onAddRandom: () => void;
   onShuffle?: () => void;
   isGeneratingRandom?: boolean;
-  onAddManualVideo: (url: string, prompt: string, category: VideoCategory) => void;
+  onAddManualVideo: (url: string, prompt: string, category: VideoCategory, mediaType?: 'video' | 'music') => void;
   onAddCategory: (name: string, color?: string) => void;
   onRemoveCategory: (name: string) => void;
   onUpdateCategoryColor: (category: string, color: string) => void;
@@ -40,8 +39,8 @@ const Playlist: React.FC<PlaylistProps> = ({
   onToggleFavorite, 
   userFavorites,
   onMoveVideo,
-  onAddRandom,
-  onShuffle,
+  onShuffle = () => {},
+  onAddRandom = () => {},
   isGeneratingRandom = false,
   onAddManualVideo,
   onAddCategory,
@@ -53,7 +52,9 @@ const Playlist: React.FC<PlaylistProps> = ({
   isAuthorized,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
+  const [mediaMode, setMediaMode] = useState<'video' | 'music'>('video');
   const [newUrl, setNewUrl] = useState('');
+  const [newMediaType, setNewMediaType] = useState<'video' | 'music'>('video');
   const [newPrompt, setNewPrompt] = useState('');
   const [newCat, setNewCat] = useState<VideoCategory | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -101,10 +102,11 @@ const Playlist: React.FC<PlaylistProps> = ({
   };
 
   const filteredVideos = useMemo(() => {
-    if (activeTab === 'All') return videos;
-    if (activeTab === 'Vault') return videos.filter(v => userFavorites.includes(v.id));
-    return videos.filter(v => v.category === activeTab);
-  }, [videos, activeTab, userFavorites]);
+    const byMode = videos.filter(v => mediaMode === 'music' ? v.mediaType === 'music' : v.mediaType !== 'music');
+    if (activeTab === 'All') return byMode;
+    if (activeTab === 'Vault') return byMode.filter(v => userFavorites.includes(v.id));
+    return byMode.filter(v => v.category === activeTab);
+  }, [videos, activeTab, userFavorites, mediaMode]);
 
   const allTabs = useMemo(() => {
     const baseTabs = [{ name: 'All' as const }, { name: 'Vault' as const }];
@@ -199,14 +201,27 @@ const Playlist: React.FC<PlaylistProps> = ({
             Library Matrix
           </h3>
           <div className="flex items-center gap-4">
+            {/* Video / Music Toggle */}
+            <div className="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+              <button
+                onClick={() => setMediaMode('video')}
+                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${mediaMode === 'video' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white'}`}
+              >
+                <i className="fa-solid fa-film mr-1"></i>Video
+              </button>
+              <button
+                onClick={() => setMediaMode('music')}
+                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${mediaMode === 'music' ? 'bg-purple-600 text-white' : 'text-slate-500 hover:text-white'}`}
+              >
+                <i className="fa-solid fa-music mr-1"></i>Music
+              </button>
+            </div>
             {isAuthorized && (
               <button onClick={() => { if(confirm('Purge all?')) onPurgeAll(); }} className="text-[9px] font-black uppercase tracking-widest text-red-500 hover:text-red-400 transition-all flex items-center gap-2">
                 <i className="fa-solid fa-eraser text-[11px]"></i>
               </button>
             )}
-            <button onClick={onAddRandom} title="Surprise Video" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
-              <i className="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
-            </button>
+
             <button onClick={onShuffle} title="Shuffle Mode" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
               <i className="fa-solid fa-shuffle text-[11px]"></i>
             </button>
@@ -263,7 +278,15 @@ const Playlist: React.FC<PlaylistProps> = ({
                 </form>
               )}
               <form onSubmit={handleInlineSubmit} className="space-y-4">
-                <input ref={urlInputRef} required type="text" placeholder="URL..." value={newUrl} onChange={(e) => setNewUrl(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
+                <div className="flex gap-2 mb-1">
+                  <button type="button" onClick={() => setNewMediaType('video')} className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center gap-1.5 ${newMediaType === 'video' ? 'bg-blue-600 text-white' : 'bg-white/5 text-slate-500'}`}>
+                    <i className="fa-solid fa-film text-[10px]"></i> Video
+                  </button>
+                  <button type="button" onClick={() => setNewMediaType('music')} className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center gap-1.5 ${newMediaType === 'music' ? 'bg-purple-600 text-white' : 'bg-white/5 text-slate-500'}`}>
+                    <i className="fa-solid fa-music text-[10px]"></i> Music
+                  </button>
+                </div>
+                <input ref={urlInputRef} required type="text" placeholder={mediaMode === "music" ? "SoundCloud or YouTube URL..." : "YouTube URL..."} value={newUrl} onChange={(e) => setNewUrl(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
                 <input type="text" placeholder="Title..." value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
                 <div className="flex flex-wrap gap-1">
                   {categories.map(cat => (

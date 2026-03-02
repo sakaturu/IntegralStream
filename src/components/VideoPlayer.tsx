@@ -44,7 +44,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const youtubeId = useMemo(() => video ? getCleanId(video.url) : null, [video?.url]);
-  const isYouTube = !!youtubeId;
+  const isYouTube = !!youtubeId && video?.mediaType !== 'music';
+  const isSoundCloud = video?.mediaType === 'music' || (video?.url || '').includes('soundcloud.com');
+  const soundCloudUrl = isSoundCloud ? `https://w.soundcloud.com/player/?url=${encodeURIComponent(video?.url || '')}&color=%23a855f7&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false` : '';
   const videoId = video?.id;
 
   useEffect(() => {
@@ -89,9 +91,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     if (isYouTube) {
-      sendYoutubeCommand(isPlaying ? 'playVideo' : 'pauseVideo');
-      sendYoutubeCommand('unMute');
-      sendYoutubeCommand('setVolume', 80);
+      if (isPlaying) {
+        // Retry play command a few times to handle iframe not ready
+        sendYoutubeCommand('playVideo');
+        const t1 = setTimeout(() => sendYoutubeCommand('playVideo'), 500);
+        const t2 = setTimeout(() => sendYoutubeCommand('playVideo'), 1200);
+        sendYoutubeCommand('unMute');
+        sendYoutubeCommand('setVolume', 80);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+      } else {
+        sendYoutubeCommand('pauseVideo');
+      }
     } else if (videoRef.current) {
       if (isPlaying) videoRef.current.play().catch(() => {});
       else videoRef.current.pause();
@@ -124,7 +134,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   const youtubeUrl = isYouTube 
-    ? `https://www.youtube.com/embed/${youtubeId}?autoplay=${isPlaying ? 1 : 0}&mute=0&rel=0&modestbranding=1&controls=0&enablejsapi=1&origin=${window.location.origin}`
+    ? `https://www.youtube.com/embed/${youtubeId}?autoplay=0&mute=0&rel=0&modestbranding=1&controls=0&enablejsapi=1&origin=${window.location.origin}`
     : '';
 
   const isHUDVisible = !isPlaying || showControls;
@@ -162,7 +172,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       <div className="w-full h-full relative bg-black">
-        {isYouTube ? (
+        {isSoundCloud ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-purple-950/80 to-black p-8">
+            <i className="fa-brands fa-soundcloud text-orange-500 text-[60px] mb-6"></i>
+            <iframe
+              width="100%"
+              height="166"
+              scrolling="no"
+              frameBorder="no"
+              src={soundCloudUrl}
+              className="rounded-xl"
+            />
+            <p className="text-slate-400 text-[11px] mt-4 font-black uppercase tracking-widest">{video?.prompt}</p>
+          </div>
+        ) : isYouTube ? (
           <div className="w-full h-full relative">
             {isSyncing && (
               <div className="absolute inset-0 z-30 bg-black flex flex-col items-center justify-center gap-4">
