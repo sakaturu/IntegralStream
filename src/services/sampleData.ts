@@ -14,20 +14,7 @@ export const MASTER_IDENTITY = "NEURAL_NODE_01";
  * HARDCODED_FAVORITES: Default vault items for specific identities.
  * These will persist even after browser cache/data is cleared.
  */
-export const HARDCODED_FAVORITES: Record<string, string[]> = {
-  "NEURAL_NODE_01": [
-    "v-int-001", // Tree of Life
-    "v-permia-001", // Dome Architecture
-    "v-env-001" // Heal the Earth
-  ],
-  "SHAWN": [
-    "v-int-001", // Tree of Life
-    "v-int-005", // Personal Soak Area
-    "v-permia-001", // Dome Architecture
-    "v-env-001", // Heal the Earth
-    "v-span-001" // Meditación Guiada
-  ]
-};
+export const HARDCODED_FAVORITES: Record<string, string[]> = {};
 
 /**
  * BASE LIBRARY DATA

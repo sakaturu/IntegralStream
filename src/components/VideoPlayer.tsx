@@ -59,7 +59,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const timer = window.setTimeout(() => {
         onViewIncrement?.();
         setViewCounted(true);
-      }, 10000);
+      }, 5000);
       return () => window.clearTimeout(timer);
     }
   }, [isPlaying, viewCounted, onViewIncrement, videoId, video?.status]);
@@ -124,7 +124,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   const youtubeUrl = isYouTube 
-    ? `https://www.youtube.com/embed/${youtubeId}?autoplay=0&mute=0&rel=0&modestbranding=1&controls=0&enablejsapi=1&origin=${window.location.origin}`
+    ? `https://www.youtube.com/embed/${youtubeId}?autoplay=${isPlaying ? 1 : 0}&mute=0&rel=0&modestbranding=1&controls=0&enablejsapi=1&origin=${window.location.origin}`
     : '';
 
   const isHUDVisible = !isPlaying || showControls;

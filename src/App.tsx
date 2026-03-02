@@ -123,11 +123,7 @@ const App: React.FC = () => {
     }).catch(() => { setIsLoaded(true); });
     const unsub = subscribeToLibrary(() => {});
     if (currentUser && currentUser !== MASTER_IDENTITY) {
-      loadUserData(currentUser).then(data => {
-        if (data && data.favorites) {
-          setUserFavMap(prev => ({ ...prev, [currentUser]: data.favorites }));
-        }
-      }).catch(() => {});
+      // favorites loaded from localStorage only
     }
     return () => unsub();
   }, []);
@@ -144,12 +140,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     localStorage.setItem(FAV_MAP_KEY, JSON.stringify(userFavMap));
-    // Save each user's favorites to Firebase
-    Object.entries(userFavMap).forEach(([username, favorites]) => {
-      if (username && username !== MASTER_IDENTITY) {
-        saveUserData(username, { favorites, username, lastSeen: Date.now() });
-      }
-    });
   }, [userFavMap]);
 
   const handleIdentify = (name: string, remember: boolean) => {
@@ -279,7 +269,7 @@ const App: React.FC = () => {
   const [currentVideoId, setCurrentVideoId] = useState<string | undefined>(videos[0]?.id);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || videos.length === 0) return;
     localStorage.setItem(DATA_KEY, JSON.stringify(videos));
     localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString());
     localStorage.setItem(AUTH_KEY, isAuthorized ? 'true' : 'false');
@@ -340,8 +330,9 @@ const App: React.FC = () => {
       const updatedFavs = isAlreadyFav 
         ? userFavs.filter(fid => fid !== id) 
         : [...userFavs, id];
-      // Sync this user's favorites to Firebase immediately
-      updateUserFavorites(currentUser, updatedFavs).catch(() => {});
+      // Sync this user's favorites to localStorage
+      const newMap = { ...prev, [currentUser]: updatedFavs };
+      localStorage.setItem('integral_fav_map_v4221', JSON.stringify(newMap));
       return { 
         ...prev, 
         [currentUser]: updatedFavs 
@@ -351,8 +342,22 @@ const App: React.FC = () => {
 
   const handleToggleLike = useCallback((id: string) => { setVideos(prev => prev.map(v => v.id === id ? { ...v, isLiked: !v.isLiked, likeCount: v.isLiked ? v.likeCount - 1 : v.likeCount + 1, isDisliked: v.isLiked ? v.isDisliked : false, dislikeCount: (v.isLiked || !v.isDisliked) ? v.dislikeCount : v.dislikeCount - 1 } : v)); }, []);
   const handleToggleDislike = useCallback((id: string) => { setVideos(prev => prev.map(v => v.id === id ? { ...v, isDisliked: !v.isDisliked, dislikeCount: v.isDisliked ? v.dislikeCount - 1 : v.dislikeCount + 1, isLiked: v.isDisliked ? v.isLiked : false, likeCount: (v.isDisliked || !v.isLiked) ? v.likeCount : v.likeCount - 1 } : v)); }, []);
-  const handleIncrementView = useCallback((id: string) => { setVideos(prev => prev.map(v => v.id === id ? { ...v, viewCount: v.viewCount + 1 } : v)); }, []);
+  const handleIncrementView = useCallback((id: string) => {
+    setVideos(prev => {
+      const updated = prev.map(v => v.id === id ? { ...v, viewCount: v.viewCount + 1 } : v);
+      saveLibrary({ videos: updated, categories, categoryColors, version: LIBRARY_VERSION }).catch(() => {});
+      return updated;
+    });
+  }, [categories, categoryColors]);
   const handleSelectVideo = useCallback((v: VideoItem) => { if (currentVideoId === v.id) { setIsPlaying(prev => !prev); } else { setCurrentVideoId(v.id); setIsPlaying(true); } }, [currentVideoId]);
+
+  const handleShuffle = useCallback(() => {
+    if (videos.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * videos.length);
+    const randomVideo = videos[randomIndex];
+    setCurrentVideoId(randomVideo.id);
+    setIsPlaying(true);
+  }, [videos]);
 
   const handleAddCategory = (name: string, color?: string) => { if (!categories.includes(name)) { setCategories(prev => [...prev, name]); setCategoryColors(prev => ({ ...prev, [name]: color || '#94a3b8' })); } };
   const handleRemoveCategory = (name: string) => { setCategories(prev => prev.filter(c => c !== name)); if (playlistTab === name) setPlaylistTab('All'); };
@@ -463,7 +468,7 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex overflow-hidden relative z-10">
         <aside className="w-[490px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 overflow-y-auto custom-scrollbar">
-          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} />
+          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onShuffle={handleShuffle} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} />
         </aside>
 
         <section className="flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
