@@ -42,7 +42,7 @@ interface MusicReview {
 }
 interface MusicAppProps {
   currentUser:string; isAuthorized:boolean; onClose:()=>void;
-  profilePic?:string; nodeId?:string; isUserLocked?:boolean;
+  nodeId?:string; isUserLocked?:boolean;
   pendingReviewsCount?:number; onLogout?:()=>void; onAdminClick?:()=>void;
 }
 
@@ -53,6 +53,14 @@ const USER_KEY       = 'integral_active_user_v6';
 const USER_LOCKED_KEY= 'integral_user_locked_v6';
 const USER_NODE_ID_KEY = 'integral_user_node_id';
 const FAV_MAP_KEY = 'integral_user_fav_map_v2';
+const PROFILE_PIC_KEY = 'integral_profile_pics_v1'; // {username: base64dataUrl}
+
+// ─── Profile pic helpers ─────────────────────────────────────────────────────
+const getPicMap  = (): Record<string,string> => { try { return JSON.parse(localStorage.getItem(PROFILE_PIC_KEY)||'{}'); } catch { return {}; } };
+const savePicMap = (m: Record<string,string>) => { try { localStorage.setItem(PROFILE_PIC_KEY, JSON.stringify(m)); } catch {} };
+const getUserPic = (username: string): string => getPicMap()[username] || '';
+const setUserPic = (username: string, pic: string) => { const m = getPicMap(); m[username] = pic; savePicMap(m); };
+const ADMIN_USER = 'ADMIN';
 
 const getMusicKey  = (u:string) => `integral_music_${u}_v1`;
 const getSharedKey = () => `integral_music_shared_v1`;
@@ -1033,7 +1041,7 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
 const SHARED_MUSIC_KEY = 'integral_music_shared_v1';
 
 const MusicApp: React.FC<MusicAppProps> = ({
-  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, profilePic='', isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{},
+  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{},
 }) => {
   // ── Identity: read/write same keys as APP.tsx ─────────────────────────────
   const [currentUser,  setCurrentUser]  = useState<string>(()=> localStorage.getItem(USER_KEY) || currentUserProp);
@@ -1041,6 +1049,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [showIdentify, setShowIdentify] = useState(false);
   const [identifyName, setIdentifyName] = useState('');
   const [identifyErr,  setIdentifyErr]  = useState('');
+  const [identifyPic,  setIdentifyPic]  = useState('');
+  // currentPic: always read fresh from localStorage so it's never stale
+  const [picVersion, setPicVersion] = useState(0); // increment to force re-read after upload
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const currentPic = useMemo(() => getUserPic(currentUser), [currentUser, picVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const adminPic   = useMemo(() => getUserPic(ADMIN_USER),  [picVersion]);
 
   // keep in sync if parent prop changes
   useEffect(()=>{ if(currentUserProp && currentUserProp !== currentUser) setCurrentUser(localStorage.getItem(USER_KEY)||currentUserProp); },[currentUserProp]);
@@ -1053,6 +1068,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
     setIsUserLocked(true);
     localStorage.setItem(USER_KEY, name);
     localStorage.setItem(USER_LOCKED_KEY,'true');
+    if(identifyPic) setUserPic(name, identifyPic);
+    setPicVersion(v => v+1); // force re-read of currentPic/adminPic
+    window.dispatchEvent(new Event('picUpdated')); // notify App component
     setShowIdentify(false);
     setIdentifyName(''); setIdentifyErr('');
   };
@@ -1342,18 +1360,22 @@ const MusicApp: React.FC<MusicAppProps> = ({
             <i className="fa-solid fa-star mr-1"/>Reviews
           </button>
           {/* Identify button */}
-          <button onClick={()=>{setShowIdentify(true);setIdentifyName(isUserLocked?currentUser.replace(/_/g,' '):'');setIdentifyErr('');}} className="px-4 h-11 rounded-xl border flex items-center gap-3 bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition-all">
+          <button onClick={()=>{ setShowIdentify(true); setIdentifyName(isUserLocked?currentUser.replace(/_/g,' '):''); setIdentifyErr(''); setIdentifyPic(getUserPic(currentUser)); }} className="px-4 h-11 rounded-xl border flex items-center gap-3 bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition-all">
             <div className="flex flex-col items-end">
               <span className="text-[7px] font-black uppercase tracking-widest opacity-60">{isUserLocked?'My Archive':'Identify'}</span>
               <span className="text-[10px] font-black uppercase tracking-widest">{currentUser.replace(/_/g,' ')}</span>
             </div>
             <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-500/40 flex-shrink-0 flex items-center justify-center bg-blue-600/20">
-              {profilePic?<img src={profilePic} className="w-full h-full object-cover" alt="profile"/>:<i className="fa-solid fa-user-astronaut text-[11px] text-blue-400"/>}
+              {currentPic?<img src={currentPic} className="w-full h-full object-cover" alt="profile"/>:<i className="fa-solid fa-user-astronaut text-[11px] text-blue-400"/>}
             </div>
           </button>
           {isUserLocked&&<button onClick={handleIdentifyLogout} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-600 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 transition-all"><i className="fa-solid fa-arrow-right-from-bracket text-[11px]"/></button>}
-          {isAuthorized&&<button onClick={handleLockClick} className="w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-blue-600/10 border-blue-500/30 text-blue-400 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400"><i className="fa-solid fa-lock-open"/></button>}
-          {!isAuthorized&&<button onClick={handleLockClick} className="w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20"><i className="fa-solid fa-lock"/></button>}
+          {isAuthorized&&<button onClick={handleLockClick} className="w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-blue-600/10 border-blue-500/30 hover:bg-red-500/10 hover:border-red-500/30 overflow-hidden" title="Admin — Click to lock">
+            {adminPic ? <img src={adminPic} className="w-full h-full object-cover" alt="admin"/> : <i className="fa-solid fa-lock-open text-blue-400"/>}
+          </button>}
+          {!isAuthorized&&<button onClick={handleLockClick} className="w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-white/5 border-white/10 hover:border-white/20 overflow-hidden" title="Admin Login">
+            {adminPic ? <img src={adminPic} className="w-full h-full object-cover opacity-50 hover:opacity-100" alt="admin"/> : <i className="fa-solid fa-lock text-slate-500"/>}
+          </button>}
         </div>
       </header>
 
@@ -1639,16 +1661,40 @@ const MusicApp: React.FC<MusicAppProps> = ({
       {/* ── Identify Modal ── */}
       {showIdentify&&(
         <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-xl flex items-center justify-center" onClick={()=>setShowIdentify(false)}>
-          <div className="bg-slate-950 border border-white/10 rounded-2xl p-8 w-80 shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
-                <i className="fa-solid fa-user-astronaut text-blue-400"/>
-              </div>
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-widest text-blue-400">Identify</p>
-                <p className="text-[9px] text-slate-600 uppercase tracking-widest">IntegralStream Archive</p>
-              </div>
+          <div className="bg-slate-950 border border-white/10 rounded-2xl p-8 w-84 shadow-2xl" style={{width:340}} onClick={e=>e.stopPropagation()}>
+
+            {/* Avatar upload */}
+            <div className="flex flex-col items-center mb-6">
+              <label className="cursor-pointer group relative" title="Click to upload photo">
+                <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-blue-500/40 bg-blue-600/10 flex items-center justify-center group-hover:border-blue-400 transition-all shadow-lg">
+                  {identifyPic
+                    ? <img src={identifyPic} alt="avatar" className="w-full h-full object-cover"/>
+                    : <i className="fa-solid fa-user-astronaut text-2xl text-blue-400"/>
+                  }
+                  <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <i className="fa-solid fa-camera text-white text-sm"/>
+                  </div>
+                </div>
+                <input
+                  type="file" accept="image/*" className="hidden"
+                  onChange={e=>{
+                    const file = e.target.files?.[0];
+                    if(!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => setIdentifyPic(ev.target?.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+              <p className="text-[9px] text-slate-600 uppercase tracking-widest mt-2">Click to add photo</p>
             </div>
+
+            <div className="flex items-center gap-2 mb-5">
+              <div className="flex-1 h-px bg-white/5"/>
+              <p className="text-[9px] font-black uppercase tracking-widest text-blue-400">Identify · IntegralStream</p>
+              <div className="flex-1 h-px bg-white/5"/>
+            </div>
+
             <div className="mb-4">
               <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 block">Your Name</label>
               <input
@@ -1779,6 +1825,12 @@ const App: React.FC = () => {
 
   const [showMusic, setShowMusic] = useState(false);
   const [showLoginOverlay, setShowLoginOverlay] = useState(false);
+  // pic state: just a version counter to force re-renders when pic changes
+  const [picVersion, setPicVersion] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const currentProfilePic = useMemo(() => getUserPic(currentUser), [currentUser, picVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const adminPic = useMemo(() => getUserPic(ADMIN_USER), [picVersion]);
   const [activeSecondaryView, setActiveSecondaryView] = useState<'none' | 'reviews' | 'vault' | 'moderation'>('none');
   const [reviewInitialTab, setReviewInitialTab] = useState<'Read' | 'Write'>('Read');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1791,6 +1843,7 @@ const App: React.FC = () => {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
   useEffect(() => { const h = () => setIsVideoFullscreen(!!document.fullscreenElement); document.addEventListener('fullscreenchange', h); return () => document.removeEventListener('fullscreenchange', h); }, []);
+  useEffect(() => { const h = () => setPicVersion(v => v+1); window.addEventListener('picUpdated', h); return () => window.removeEventListener('picUpdated', h); }, []);
   const checkSyncLock = useRef(false);
 
   useEffect(() => {
@@ -1802,6 +1855,8 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(FAV_MAP_KEY, JSON.stringify(userFavMap));
   }, [userFavMap]);
+
+
 
   const handleIdentify = (name: string, remember: boolean) => {
     const cleanName = name.trim().toUpperCase().replace(/\s+/g, '_');
@@ -2106,7 +2161,12 @@ const App: React.FC = () => {
                 </div>
                 <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest group-hover:text-blue-400 transition-colors">{currentUser}</span>
               </div>
-              <i className={`fa-solid ${isUserLocked ? 'fa-user-lock' : 'fa-id-badge'} text-blue-500 text-xs`}></i>
+              <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-500/40 flex-shrink-0 flex items-center justify-center bg-blue-600/20">
+                {currentProfilePic
+                  ? <img src={currentProfilePic} className="w-full h-full object-cover" alt="profile"/>
+                  : <i className={`fa-solid ${isUserLocked ? 'fa-user-lock' : 'fa-id-badge'} text-blue-500 text-xs`}></i>
+                }
+              </div>
             </div>
           </div>
 
@@ -2131,9 +2191,13 @@ const App: React.FC = () => {
                 setShowLoginOverlay(true);
               }
             }} 
-            className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer ${isAuthorized ? 'bg-blue-600/10 border-blue-500/20 text-blue-400' : 'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}
+            className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer overflow-hidden ${isAuthorized ? 'bg-blue-600/10 border-blue-500/20' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+            title={isAuthorized ? 'Admin — Click to lock' : 'Admin Login'}
           >
-            <i className={`fa-solid ${isAuthorized ? 'fa-unlock' : 'fa-lock'}`}></i>
+            {adminPic
+              ? <img src={adminPic} className={`w-full h-full object-cover ${isAuthorized ? '' : 'opacity-50'}`} alt="admin"/>
+              : <i className={`fa-solid ${isAuthorized ? 'fa-unlock text-blue-400' : 'fa-lock text-slate-500'}`}></i>
+            }
           </button>
 
 
@@ -2198,7 +2262,7 @@ const App: React.FC = () => {
             onIdentify={handleIdentify}
             onRestore={handleRestoreNode} 
             isIdentityLocked={isUserLocked}
-            onClose={() => isUserLocked && setShowLoginOverlay(false)} 
+            onClose={() => setShowLoginOverlay(false)} 
             defaultName={currentUser !== MASTER_IDENTITY ? currentUser : ''}
           />
         </div>
@@ -2212,6 +2276,7 @@ const App: React.FC = () => {
             isUserLocked={isUserLocked}
             onLogout={handleLogout}
             onAdminClick={() => setShowLoginOverlay(true)}
+
           />
       )}
 
