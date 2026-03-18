@@ -63,6 +63,19 @@ const setUserPic = (username: string, pic: string) => { const m = getPicMap(); m
 const ADMIN_USER = 'ADMIN';
 
 const getMusicKey  = (u:string) => `integral_music_${u}_v1`;
+
+// ─── User Playlist types ─────────────────────────────────────────────────────
+interface UserPlaylist {
+  id: string;
+  name: string;
+  owner: string;
+  videoIds: string[];
+  trackIds: string[];
+  createdAt: number;
+}
+const USER_PLAYLISTS_KEY = 'integral_user_playlists_v1';
+const getPlaylists = (): UserPlaylist[] => { try { return JSON.parse(localStorage.getItem(USER_PLAYLISTS_KEY)||'[]'); } catch { return []; } };
+const savePlaylists = (p: UserPlaylist[]) => { try { localStorage.setItem(USER_PLAYLISTS_KEY, JSON.stringify(p)); } catch {} };
 const getSharedKey = () => `integral_music_shared_v1`;
 
 // ── Generate a stylish canvas thumbnail from track metadata ──────────────────
@@ -1040,6 +1053,140 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
 // ─── Main component ────────────────────────────────────────────────────────────
 const SHARED_MUSIC_KEY = 'integral_music_shared_v1';
 
+// ─── Music Playlist Button & Panel ──────────────────────────────────────────
+const MUSIC_PL_KEY = 'integral_music_playlists_v1';
+interface MusicPL { id:string; name:string; owner:string; trackIds:string[]; createdAt:number; }
+const getMusicPLs  = ():MusicPL[] => { try { return JSON.parse(localStorage.getItem(MUSIC_PL_KEY)||'[]'); } catch { return []; } };
+const saveMusicPLs = (p:MusicPL[]) => { try { localStorage.setItem(MUSIC_PL_KEY, JSON.stringify(p)); } catch {} };
+
+const MusicPlaylistButton: React.FC<{
+  currentUser:string; tracks:any[]; currentTrackId?:string;
+  onSelectTrack:(id:string)=>void; triggerAdd?:boolean;
+}> = ({currentUser, tracks, currentTrackId, onSelectTrack, triggerAdd=false}) => {
+  const [open,    setOpen]    = React.useState(false);
+  const [pls,     setPls]     = React.useState<MusicPL[]>(()=>getMusicPLs());
+  const [newName, setNewName] = React.useState('');
+  const [activeId,setActiveId]= React.useState<string|null>(null);
+  const mine = pls.filter(p=>p.owner===currentUser);
+
+  React.useEffect(()=>{ saveMusicPLs(pls); },[pls]);
+
+  const create = () => {
+    const name = newName.trim();
+    if(!name) return;
+    const pl:MusicPL = {id:`mpl-${Date.now()}`,name,owner:currentUser,trackIds:[],createdAt:Date.now()};
+    setPls(prev=>[...prev,pl]);
+    setNewName('');
+    setActiveId(pl.id);
+  };
+  const addTrack = (plId:string, tid:string) => setPls(prev=>prev.map(p=>p.id===plId&&!p.trackIds.includes(tid)?{...p,trackIds:[...p.trackIds,tid]}:p));
+  const removeTrack = (plId:string, tid:string) => setPls(prev=>prev.map(p=>p.id===plId?{...p,trackIds:p.trackIds.filter(x=>x!==tid)}:p));
+  const deletePl = (id:string) => { setPls(prev=>prev.filter(p=>p.id!==id)); if(activeId===id) setActiveId(null); };
+
+  return (
+    <div className="relative">
+      {triggerAdd ? (
+        <button
+          onClick={()=>setOpen(v=>!v)}
+          style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:`1px solid ${open?'#7c3aed':'rgba(255,255,255,0.1)'}`,background:open?'rgba(124,58,237,0.3)':'rgba(255,255,255,0.05)',color:open?'#a78bfa':'#94a3b8',cursor:'pointer',transition:'all 0.2s',marginLeft:4}}
+          title="Add to my playlist"
+        >
+          <i className="fa-solid fa-plus text-xs"/>
+        </button>
+      ) : (
+        <button
+          onClick={()=>setOpen(v=>!v)}
+          className={`relative w-9 h-9 rounded-xl flex items-center justify-center border transition-all ${open?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20'}`}
+          title="My Music Playlists"
+        >
+          <i className="fa-solid fa-list text-[11px]"/>
+          {mine.length>0&&<span className="absolute -top-1 -right-1 w-4 h-4 bg-purple-600 rounded-full text-[8px] font-black flex items-center justify-center border-2 border-black">{mine.length}</span>}
+        </button>
+      )}
+
+      {open&&(
+        <div className="absolute top-12 right-0 w-72 bg-slate-950 border border-white/10 rounded-2xl shadow-2xl z-[200] flex flex-col overflow-hidden" style={{maxHeight:420}}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+            <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">My Music Lists</p>
+            <button onClick={()=>setOpen(false)} className="text-slate-600 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-xs"/></button>
+          </div>
+
+          {/* Create */}
+          <div className="px-3 py-2.5 border-b border-white/5 flex gap-2">
+            <input
+              value={newName} onChange={e=>setNewName(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&create()}
+              placeholder="New list name..."
+              className="flex-1 h-8 px-3 rounded-xl bg-black/60 border border-white/10 text-white text-[10px] font-bold placeholder-slate-700 focus:outline-none focus:border-purple-500/40 uppercase"
+            />
+            <button onClick={create} disabled={!newName.trim()} className="w-8 h-8 rounded-xl bg-purple-600 flex items-center justify-center text-white disabled:opacity-30 hover:bg-purple-500 transition-all flex-shrink-0">
+              <i className="fa-solid fa-plus text-[10px]"/>
+            </button>
+          </div>
+
+          {/* Lists */}
+          <div className="overflow-y-auto custom-scrollbar flex-1">
+            {mine.length===0?(
+              <div className="flex flex-col items-center justify-center py-8 gap-2 text-slate-700">
+                <i className="fa-solid fa-music text-2xl"/>
+                <p className="text-[8px] font-black uppercase tracking-widest">No lists yet</p>
+              </div>
+            ):(
+              <div className="p-2 space-y-1.5">
+                {mine.map(pl=>(
+                  <div key={pl.id} className={`rounded-xl border transition-all ${activeId===pl.id?'border-purple-500/40 bg-purple-600/10':'border-white/5 hover:border-white/10'}`}>
+                    <div className="flex items-center gap-2 px-3 py-2 cursor-pointer" onClick={()=>setActiveId(activeId===pl.id?null:pl.id)}>
+                      <i className="fa-solid fa-list text-purple-400 text-[10px] flex-shrink-0"/>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white truncate">{pl.name}</p>
+                        <p className="text-[7px] text-slate-600 uppercase">{pl.trackIds.length} track{pl.trackIds.length!==1?'s':''}</p>
+                      </div>
+                      <button onClick={e=>{e.stopPropagation();deletePl(pl.id);}} className="text-slate-700 hover:text-red-400 transition-colors">
+                        <i className="fa-solid fa-trash text-[8px]"/>
+                      </button>
+                    </div>
+
+                    {activeId===pl.id&&(
+                      <div className="border-t border-white/5 px-3 py-2 space-y-1">
+                        {pl.trackIds.map(tid=>{
+                          const t=tracks.find(x=>x.id===tid);
+                          if(!t) return null;
+                          return(
+                            <div key={tid} className="flex items-center gap-2 group/ti">
+                              <button onClick={()=>{onSelectTrack(tid);setOpen(false);}} className="flex-1 text-left text-[8px] font-bold text-slate-400 hover:text-white uppercase truncate transition-colors">
+                                {t.artist} — {t.title}
+                              </button>
+                              <button onClick={()=>removeTrack(pl.id,tid)} className="opacity-0 group-hover/ti:opacity-100 text-slate-700 hover:text-red-400 transition-all">
+                                <i className="fa-solid fa-xmark text-[8px]"/>
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {currentTrackId&&(
+                          <div className="pt-1 border-t border-white/5 mt-1">
+                            {pl.trackIds.includes(currentTrackId)?(
+                              <p className="text-[7px] text-green-500 font-black uppercase tracking-widest flex items-center gap-1"><i className="fa-solid fa-check"/>In this list</p>
+                            ):(
+                              <button onClick={()=>addTrack(pl.id,currentTrackId)} className="w-full h-6 rounded-lg bg-purple-600/20 border border-purple-500/20 text-purple-400 text-[7px] font-black uppercase tracking-widest hover:bg-purple-600/30 transition-all flex items-center justify-center gap-1">
+                                <i className="fa-solid fa-plus text-[7px]"/>Add current track
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 const MusicApp: React.FC<MusicAppProps> = ({
   currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{},
 }) => {
@@ -1370,44 +1517,23 @@ const MusicApp: React.FC<MusicAppProps> = ({
             </div>
           </button>
           {isUserLocked&&<button onClick={handleIdentifyLogout} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-600 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 transition-all"><i className="fa-solid fa-arrow-right-from-bracket text-[11px]"/></button>}
-          {isAuthorized&&<button onClick={handleLockClick} className="w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-blue-600/10 border-blue-500/30 hover:bg-red-500/10 hover:border-red-500/30 overflow-hidden" title="Admin — Click to lock">
+          {currentUser!==MASTER_IDENTITY&&currentUser!==''&&<MusicPlaylistButton currentUser={currentUser} tracks={tracks} currentTrackId={currentTrackId} onSelectTrack={(id)=>{setCurrentTrackId(id);setIsPlaying(true);}}/>}
+          {isAuthorized&&<button onClick={handleLockClick} className="relative w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-blue-600/10 border-blue-500/30 hover:bg-red-500/10 hover:border-red-500/30 overflow-hidden group/admin">
             {adminPic ? <img src={adminPic} className="w-full h-full object-cover" alt="admin"/> : <i className="fa-solid fa-lock-open text-blue-400"/>}
+            <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center opacity-0 group-hover/admin:opacity-100 transition-opacity gap-0.5">
+              <i className="fa-solid fa-lock text-red-400 text-[9px]"/>
+              <span className="text-[6px] font-black text-red-400 uppercase tracking-wider leading-none">Log Out</span>
+            </div>
           </button>}
-          {!isAuthorized&&<button onClick={handleLockClick} className="w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-white/5 border-white/10 hover:border-white/20 overflow-hidden" title="Admin Login">
-            {adminPic ? <img src={adminPic} className="w-full h-full object-cover opacity-50 hover:opacity-100" alt="admin"/> : <i className="fa-solid fa-lock text-slate-500"/>}
+          {!isAuthorized&&<button onClick={handleLockClick} className="relative w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-white/5 border-white/10 hover:border-blue-500/30 overflow-hidden group/admin">
+            {adminPic ? <img src={adminPic} className="w-full h-full object-cover opacity-50 group-hover/admin:opacity-100 transition-opacity" alt="admin"/> : <i className="fa-solid fa-lock text-slate-500"/>}
+            <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center opacity-0 group-hover/admin:opacity-100 transition-opacity gap-0.5">
+              <i className="fa-solid fa-unlock text-blue-400 text-[9px]"/>
+              <span className="text-[6px] font-black text-blue-400 uppercase tracking-wider leading-none">Admin</span>
+            </div>
           </button>}
         </div>
       </header>
-
-      {/* ── Add Track Form ── */}
-      {showAddForm&&(
-        <div className="flex-shrink-0 border-b border-white/10 bg-slate-900/90 px-8 py-5">
-          <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-1">Add Track</h4>
-          <p className="text-[9px] text-slate-600 mb-4">Paste a YouTube or SoundCloud URL — artist, title &amp; artwork auto-fill from source</p>
-          <div className="flex gap-3 flex-wrap items-end">
-            <div className="flex flex-col gap-1">
-              <label className="text-[9px] font-black uppercase tracking-widest text-purple-400">URL <span className="text-purple-600">*</span></label>
-              <input value={formUrl} onChange={e=>setFormUrl(e.target.value)} placeholder="YouTube or SoundCloud URL" className="h-9 px-3 rounded-xl bg-black/40 border border-white/10 text-white text-xs font-bold placeholder-slate-600 focus:outline-none focus:border-purple-500/30 w-72"/>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Artist <span className="text-slate-700">(optional)</span></label>
-              <input value={formArtist} onChange={e=>setFormArtist(e.target.value)} placeholder="Auto-fetched from source" className="h-9 px-3 rounded-xl bg-black/40 border border-white/10 text-white text-xs font-bold placeholder-slate-700 focus:outline-none focus:border-purple-500/30 w-44"/>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Title <span className="text-slate-700">(optional)</span></label>
-              <input value={formTitle} onChange={e=>setFormTitle(e.target.value)} placeholder="Auto-fetched from source" className="h-9 px-3 rounded-xl bg-black/40 border border-white/10 text-white text-xs font-bold placeholder-slate-700 focus:outline-none focus:border-purple-500/30 w-48"/>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[9px] font-black uppercase tracking-widest text-purple-400">Genre</label>
-              <select value={formCategory} onChange={e=>setFormCategory(e.target.value)} className="h-9 px-3 rounded-xl bg-black border border-white/10 text-white text-xs font-bold focus:outline-none">
-                {genres.map(g=><option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
-            <button onClick={handleAddTrack} className="h-9 px-4 rounded-xl bg-white text-black font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all">Inject</button>
-            <button onClick={()=>setShowAddForm(false)} className="h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-slate-400 font-black text-[10px] uppercase hover:text-white transition-all">Abort</button>
-          </div>
-        </div>
-      )}
 
       {/* ── Review panel ── */}
       {showReviewPanel&&(
@@ -1468,9 +1594,20 @@ const MusicApp: React.FC<MusicAppProps> = ({
           {/* Toolbar */}
           <div className="flex-none px-4 pt-6 pb-3">
             <div className="flex items-center justify-between mb-4 px-1">
-              <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Music Archive
-              </h3>
+              {/* Left: title + + button */}
+              <div className="flex items-center gap-3">
+                <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Music Archive
+                </h3>
+                <button
+                  onClick={()=>setShowAddForm(p=>!p)}
+                  className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`}
+                  title="Add track"
+                >
+                  <i className="fa-solid fa-plus text-[9px]"/>
+                </button>
+              </div>
+              {/* Right: toggle + shuffle + search */}
               <div className="flex items-center gap-2">
                 <div style={{display:'flex',alignItems:'center',background:'rgba(255,255,255,0.05)',borderRadius:8,padding:2,border:'1px solid rgba(255,255,255,0.1)',width:132,flexShrink:0}}>
                   <button onClick={()=>{ setIsPlaying(false); onClose(); }} style={{width:64,minWidth:64,height:24,borderRadius:6,fontSize:9,fontWeight:900,letterSpacing:'0.1em',display:'flex',alignItems:'center',justifyContent:'center',gap:4,flexShrink:0,border:'none',cursor:'pointer',background:'transparent',color:'#64748b'}} onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.color='#fff';(e.currentTarget as HTMLButtonElement).style.background='#2563eb';}} onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.color='#64748b';(e.currentTarget as HTMLButtonElement).style.background='transparent';}}>
@@ -1487,9 +1624,30 @@ const MusicApp: React.FC<MusicAppProps> = ({
                   <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]"></i>
                   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..." className="h-7 w-28 pl-7 pr-3 rounded-lg bg-white/5 border border-white/10 text-white text-[10px] font-bold placeholder-slate-600 focus:outline-none focus:border-purple-500/30"/>
                 </div>
-                {isAuthorized&&<button onClick={()=>setShowAddForm(p=>!p)} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-lg z-30 ${showAddForm?'bg-purple-500/10 text-purple-400 border-purple-500/20 rotate-45':'bg-white text-black border-white hover:bg-slate-100'}`}><i className="fa-solid fa-plus text-xs"></i></button>}
               </div>
             </div>
+
+            {/* ── Inline Add Track dropdown ── */}
+            {showAddForm && (
+              <div className="animate-fade-in bg-slate-900/90 border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl space-y-4">
+                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Add Track</h4>
+                <input autoFocus value={formUrl} onChange={e=>setFormUrl(e.target.value)} placeholder="YouTube or SoundCloud URL..." className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-600"/>
+                <input value={formArtist} onChange={e=>setFormArtist(e.target.value)} placeholder="Artist (auto-fetched)..." className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700"/>
+                <input value={formTitle} onChange={e=>setFormTitle(e.target.value)} placeholder="Title (auto-fetched)..." className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700"/>
+                <div className="flex flex-wrap gap-1">
+                  {genres.map(g=>(
+                    <button key={g} type="button" onClick={()=>setFormCategory(g)}
+                      className={`px-2 py-1 rounded-md border text-[8px] font-black uppercase tracking-widest transition-all ${formCategory===g?'bg-white border-white text-black':'bg-white/5 border-white/5 text-slate-500 hover:text-white'}`}>
+                      {g}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={()=>setShowAddForm(false)} className="flex-1 bg-white/5 border border-white/10 text-slate-500 py-3 rounded-xl text-[9px] font-black uppercase hover:text-white transition-all">Abort</button>
+                  <button onClick={handleAddTrack} disabled={!formUrl.trim()} className="flex-1 py-3 bg-white text-black rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-30 hover:bg-slate-100 transition-all">Inject</button>
+                </div>
+              </div>
+            )}
 
             {/* Genre tabs */}
             <div className="bg-black/40 rounded-xl border border-white/5 shadow-inner p-1">
@@ -1651,6 +1809,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
           <button onClick={handleShuffle} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',color:'#94a3b8',cursor:'pointer',transition:'all 0.2s'}}>
             <i className="fa-solid fa-shuffle text-xs"/>
           </button>
+          {currentUser!==MASTER_IDENTITY&&currentTrackId&&(
+            <MusicPlaylistButton currentUser={currentUser} tracks={tracks} currentTrackId={currentTrackId} onSelectTrack={(id)=>{setCurrentTrackId(id);setIsPlaying(true);}} triggerAdd={true}/>
+          )}
           <button onClick={()=>{ const el=document.querySelector('.music-visual-section') as HTMLElement; if(el){ if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); } } }} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',color:'#64748b',cursor:'pointer',transition:'all 0.2s',marginLeft:8}} title="Fullscreen">
             <i className="fa-solid fa-expand text-xs"/>
           </button>
@@ -1825,6 +1986,13 @@ const App: React.FC = () => {
 
   const [showMusic, setShowMusic] = useState(false);
   const [showLoginOverlay, setShowLoginOverlay] = useState(false);
+  const [loginDefaultTab, setLoginDefaultTab] = useState<'Identify'|'Terminal'|'Restore'>('Identify');
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>(()=> getPlaylists());
+  const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [activePlaylistId, setActivePlaylistId] = useState<string|null>(null);
+  const userPlaylists = useMemo(() => playlists.filter(p => p.owner === currentUser), [playlists, currentUser]);
+  const activePlaylist = useMemo(() => playlists.find(p => p.id === activePlaylistId) || null, [playlists, activePlaylistId]);
   // pic state: just a version counter to force re-renders when pic changes
   const [picVersion, setPicVersion] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1855,6 +2023,8 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(FAV_MAP_KEY, JSON.stringify(userFavMap));
   }, [userFavMap]);
+
+  useEffect(() => { savePlaylists(playlists); }, [playlists]);
 
 
 
@@ -2101,6 +2271,27 @@ const App: React.FC = () => {
     return ()=>window.removeEventListener('message',onMsg);
   },[currentVideoId]);
 
+  const handleCreatePlaylist = () => {
+    const name = newPlaylistName.trim();
+    if (!name || currentUser === MASTER_IDENTITY) return;
+    const pl: UserPlaylist = { id: `pl-${Date.now()}`, name, owner: currentUser, videoIds: [], trackIds: [], createdAt: Date.now() };
+    setPlaylists(prev => [...prev, pl]);
+    setNewPlaylistName('');
+    setActivePlaylistId(pl.id);
+  };
+  const handleDeletePlaylist = (id: string) => {
+    setPlaylists(prev => prev.filter(p => p.id !== id));
+    if (activePlaylistId === id) setActivePlaylistId(null);
+  };
+  const handleAddToPlaylist = (plId: string, videoId: string) => {
+    setPlaylists(prev => prev.map(p => p.id === plId && !p.videoIds.includes(videoId)
+      ? { ...p, videoIds: [...p.videoIds, videoId] } : p));
+  };
+  const handleRemoveFromPlaylist = (plId: string, videoId: string) => {
+    setPlaylists(prev => prev.map(p => p.id === plId
+      ? { ...p, videoIds: p.videoIds.filter(id => id !== videoId) } : p));
+  };
+
   const handleAddCategory = (name: string, color?: string) => { if (!categories.includes(name)) { setCategories(prev => [...prev, name]); setCategoryColors(prev => ({ ...prev, [name]: color || '#94a3b8' })); } };
   const handleRemoveCategory = (name: string) => { setCategories(prev => prev.filter(c => c !== name)); if (playlistTab === name) setPlaylistTab('All'); };
   
@@ -2142,7 +2333,7 @@ const App: React.FC = () => {
         <div className="flex gap-4 items-center">
           <div className="flex flex-col items-end relative group">
             <div 
-              onClick={() => isUserLocked ? handleLogout() : setShowLoginOverlay(true)}
+              onClick={() => { if(isUserLocked){ handleLogout(); } else { setLoginDefaultTab('Identify'); setShowLoginOverlay(true); } }}
               className={`px-4 h-11 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center gap-3 transition-all cursor-pointer hover:bg-blue-600/20`}
             >
               <div className="flex flex-col items-end">
@@ -2155,11 +2346,14 @@ const App: React.FC = () => {
                      <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse"></div>
                    )}
                    {isUserLocked && <i className="fa-solid fa-arrow-right-from-bracket text-[7px] text-white hidden group-hover:inline-block"></i>}
-                   <span className="text-[7px] font-black text-blue-500/60 uppercase tracking-widest group-hover:text-white transition-colors">
-                    {isUserLocked ? 'Verified (Disconnect)' : 'Identified Persona'}
+                   <span className="text-[7px] font-black text-blue-500/60 uppercase tracking-widest group-hover:hidden transition-colors">
+                    {isUserLocked ? 'Verified' : 'Identify'}
+                   </span>
+                   <span className="text-[7px] font-black text-red-400 uppercase tracking-widest hidden group-hover:inline transition-colors">
+                    {isUserLocked ? 'Log Off' : 'Click to Identify'}
                    </span>
                 </div>
-                <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest group-hover:text-blue-400 transition-colors">{currentUser}</span>
+                <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest group-hover:text-blue-400 transition-colors">{currentUser === MASTER_IDENTITY ? 'Add Username' : currentUser.replace(/_/g,' ')}</span>
               </div>
               <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-500/40 flex-shrink-0 flex items-center justify-center bg-blue-600/20">
                 {currentProfilePic
@@ -2181,6 +2375,17 @@ const App: React.FC = () => {
             </button>
           )}
 
+          {currentUser !== MASTER_IDENTITY && (
+            <button
+              onClick={() => setShowPlaylistPanel(v => !v)}
+              className={`relative h-11 px-4 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showPlaylistPanel ? 'bg-white text-black shadow-lg' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:border-white/20'}`}
+            >
+              <i className="fa-solid fa-list text-sm"></i>
+              <span>My Lists</span>
+              {userPlaylists.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 rounded-full text-[9px] font-black flex items-center justify-center border-2 border-black">{userPlaylists.length}</span>}
+            </button>
+          )}
+
           <button 
             onClick={() => {
               if (isAuthorized) {
@@ -2188,16 +2393,22 @@ const App: React.FC = () => {
                 localStorage.setItem(AUTH_KEY, 'false');
                 window.dispatchEvent(new StorageEvent('storage', { key: AUTH_KEY, newValue: 'false' }));
               } else {
+                setLoginDefaultTab('Terminal');
                 setShowLoginOverlay(true);
               }
             }} 
-            className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer overflow-hidden ${isAuthorized ? 'bg-blue-600/10 border-blue-500/20' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
-            title={isAuthorized ? 'Admin — Click to lock' : 'Admin Login'}
+            className={`relative w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer overflow-hidden group/admin ${isAuthorized ? 'bg-blue-600/10 border-blue-500/20 hover:border-red-500/30' : 'bg-white/5 border-white/10 hover:border-blue-500/30'}`}
           >
             {adminPic
-              ? <img src={adminPic} className={`w-full h-full object-cover ${isAuthorized ? '' : 'opacity-50'}`} alt="admin"/>
+              ? <img src={adminPic} className={`w-full h-full object-cover ${isAuthorized ? '' : 'opacity-50 group-hover/admin:opacity-100 transition-opacity'}`} alt="admin"/>
               : <i className={`fa-solid ${isAuthorized ? 'fa-unlock text-blue-400' : 'fa-lock text-slate-500'}`}></i>
             }
+            <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center opacity-0 group-hover/admin:opacity-100 transition-opacity gap-0.5">
+              <i className={`fa-solid ${isAuthorized ? 'fa-lock text-red-400' : 'fa-unlock text-blue-400'} text-[9px]`}/>
+              <span className={`text-[6px] font-black uppercase tracking-wider leading-none ${isAuthorized ? 'text-red-400' : 'text-blue-400'}`}>
+                {isAuthorized ? 'Log Out' : 'Admin'}
+              </span>
+            </div>
           </button>
 
 
@@ -2206,7 +2417,7 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex overflow-hidden relative z-10" style={{minHeight:0}}>
         <aside className="w-[490px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 overflow-y-auto custom-scrollbar">
-          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={() => { setShowMusic(true); setIsPlaying(false); }} onMoveToFavPick={() => {}} onWriteReview={(videoId, rating, comment) => { const review = { id: `r-${Date.now()}`, rating: rating||5, text: comment||'', user: currentUser, timestamp: Date.now(), isApproved: false }; setVideos(prev => prev.map(v => v.id === videoId ? { ...v, reviews: [review, ...(v.reviews || [])] } : v)); }} />
+          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={() => { setShowMusic(true); setIsPlaying(false); }} onMoveToFavPick={() => {}} onWriteReview={(videoId, rating, comment) => { const review = { id: `r-${Date.now()}`, rating: rating||5, text: comment||'', user: currentUser, timestamp: Date.now(), isApproved: false }; setVideos(prev => prev.map(v => v.id === videoId ? { ...v, reviews: [review, ...(v.reviews || [])] } : v)); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} />
         </aside>
 
         <section className="flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
@@ -2237,6 +2448,16 @@ const App: React.FC = () => {
                       <button onClick={() => setActiveSecondaryView(v => v === 'vault' ? 'none' : 'vault')} className="text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 flex items-center gap-2 transition-colors"><i className="fa-solid fa-vault text-[11px]"></i><span>{currentUser.replace(/_/g, ' ')}'S VAULT::</span><span className="text-[13px] font-black text-white ml-0.5">{vaultCount.toLocaleString()}</span></button>
                     </div>
                   </div>
+                  {currentUser !== MASTER_IDENTITY && currentVideo && (
+                    <button
+                      onClick={() => setShowPlaylistPanel(v => !v)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 transition-all"
+                      title="Add to playlist"
+                    >
+                      <i className="fa-solid fa-plus text-[11px]"/>
+                      <span className="text-[9px] font-black uppercase tracking-widest">Add to List</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -2264,9 +2485,125 @@ const App: React.FC = () => {
             isIdentityLocked={isUserLocked}
             onClose={() => setShowLoginOverlay(false)} 
             defaultName={currentUser !== MASTER_IDENTITY ? currentUser : ''}
+            defaultTab={loginDefaultTab}
           />
         </div>
       )}
+      {/* ── User Playlist Panel ── */}
+      {showPlaylistPanel && currentUser !== MASTER_IDENTITY && (
+        <div className="fixed inset-y-0 right-0 w-80 z-[80] bg-slate-950 border-l border-white/10 flex flex-col shadow-2xl animate-fade-in">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+            <div>
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">My Playlists</p>
+              <p className="text-[8px] text-slate-600 uppercase tracking-widest">{currentUser.replace(/_/g,' ')}</p>
+            </div>
+            <button onClick={() => setShowPlaylistPanel(false)} className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-all">
+              <i className="fa-solid fa-xmark text-xs"/>
+            </button>
+          </div>
+
+          {/* Create new playlist */}
+          <div className="px-4 py-3 border-b border-white/5">
+            <div className="flex gap-2">
+              <input
+                value={newPlaylistName}
+                onChange={e => setNewPlaylistName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreatePlaylist()}
+                placeholder="New playlist name..."
+                className="flex-1 h-9 px-3 rounded-xl bg-black/60 border border-white/10 text-white text-xs font-bold placeholder-slate-700 focus:outline-none focus:border-blue-500/40 uppercase"
+              />
+              <button
+                onClick={handleCreatePlaylist}
+                disabled={!newPlaylistName.trim()}
+                className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white disabled:opacity-30 hover:bg-blue-500 transition-all"
+              >
+                <i className="fa-solid fa-plus text-xs"/>
+              </button>
+            </div>
+          </div>
+
+          {/* Playlist list */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {userPlaylists.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-700">
+                <i className="fa-solid fa-list text-3xl"/>
+                <p className="text-[9px] font-black uppercase tracking-widest">No playlists yet</p>
+                <p className="text-[8px] uppercase tracking-wider">Create one above</p>
+              </div>
+            ) : (
+              <div className="p-3 space-y-2">
+                {userPlaylists.map(pl => (
+                  <div
+                    key={pl.id}
+                    className={`rounded-xl border transition-all cursor-pointer ${activePlaylistId === pl.id ? 'border-blue-500/40 bg-blue-600/10' : 'border-white/5 bg-white/3 hover:bg-white/5 hover:border-white/10'}`}
+                  >
+                    <div className="flex items-center gap-3 px-3 py-2.5" onClick={() => setActivePlaylistId(activePlaylistId === pl.id ? null : pl.id)}>
+                      <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                        <i className="fa-solid fa-list text-blue-400 text-xs"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-white truncate">{pl.name}</p>
+                        <p className="text-[8px] text-slate-600 uppercase tracking-wider">{pl.videoIds.length} video{pl.videoIds.length !== 1 ? 's' : ''}</p>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDeletePlaylist(pl.id); }}
+                        className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-700 hover:text-red-400 transition-all"
+                      >
+                        <i className="fa-solid fa-trash text-[9px]"/>
+                      </button>
+                    </div>
+
+                    {/* Videos in this playlist */}
+                    {activePlaylistId === pl.id && pl.videoIds.length > 0 && (
+                      <div className="border-t border-white/5 px-3 py-2 space-y-1.5">
+                        {pl.videoIds.map(vid => {
+                          const v = videos.find(x => x.id === vid);
+                          if (!v) return null;
+                          return (
+                            <div key={vid} className="flex items-center gap-2 group/item">
+                              <button
+                                onClick={() => { setCurrentVideoId(v.id); setShowPlaylistPanel(false); }}
+                                className="flex-1 text-left text-[9px] font-bold text-slate-400 hover:text-white uppercase tracking-wider truncate transition-colors"
+                              >
+                                {v.prompt || v.url}
+                              </button>
+                              <button
+                                onClick={() => handleRemoveFromPlaylist(pl.id, vid)}
+                                className="opacity-0 group-hover/item:opacity-100 w-5 h-5 rounded flex items-center justify-center text-slate-700 hover:text-red-400 transition-all"
+                              >
+                                <i className="fa-solid fa-xmark text-[8px]"/>
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Add current video to this playlist */}
+                    {activePlaylistId === pl.id && currentVideo && (
+                      <div className="border-t border-white/5 px-3 py-2">
+                        {pl.videoIds.includes(currentVideo.id) ? (
+                          <p className="text-[8px] text-green-500 font-black uppercase tracking-widest flex items-center gap-1.5">
+                            <i className="fa-solid fa-check"/> Current video in list
+                          </p>
+                        ) : (
+                          <button
+                            onClick={() => handleAddToPlaylist(pl.id, currentVideo.id)}
+                            className="w-full h-7 rounded-lg bg-blue-600/20 border border-blue-500/20 text-blue-400 text-[8px] font-black uppercase tracking-widest hover:bg-blue-600/30 transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <i className="fa-solid fa-plus text-[8px]"/> Add current video
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Music App Overlay */}
       {showMusic && (
           <MusicApp

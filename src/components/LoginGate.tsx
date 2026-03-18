@@ -15,6 +15,7 @@ interface LoginGateProps {
   onClose?: () => void;
   defaultName?: string;
   isIdentityLocked?: boolean;
+  defaultTab?: 'Identify' | 'Terminal' | 'Restore';
 }
 
 const LoginGate: React.FC<LoginGateProps> = ({
@@ -24,9 +25,10 @@ const LoginGate: React.FC<LoginGateProps> = ({
   onForget,
   onClose,
   defaultName = '',
-  isIdentityLocked = false
+  isIdentityLocked = false,
+  defaultTab = 'Identify'
 }) => {
-  const [activeTab, setActiveTab] = useState<'Identify' | 'Terminal' | 'Restore'>('Identify');
+  const [activeTab, setActiveTab] = useState<'Identify' | 'Terminal' | 'Restore'>(defaultTab);
   const [pass, setPass]           = useState('');
   const [personaName, setPersonaName] = useState(defaultName);
   const [nodeKey, setNodeKey]     = useState('');
@@ -42,24 +44,17 @@ const LoginGate: React.FC<LoginGateProps> = ({
     if (defaultName) setPersonaName(defaultName);
   }, [defaultName]);
 
-  // Only load existing pic when tab changes, NOT when typing
+  // When tab changes, load the correct pic for that tab — never bleed between tabs
   useEffect(() => {
     if (activeTab === 'Terminal') {
       setPhotoPrev(getUserPic(ADMIN_USER));
-    } else if (activeTab === 'Restore') {
+    } else if (activeTab === 'Identify') {
+      const key = (defaultName || '').trim().toUpperCase().replace(/\s+/g,'_');
+      setPhotoPrev(key ? getUserPic(key) : '');
+    } else {
       setPhotoPrev('');
     }
-    // For Identify tab: load pic based on defaultName only (existing user)
-    // but don't reset it while the user is typing
-  }, [activeTab]);
-
-  // Load existing pic when modal first opens with a known name (returning user)
-  useEffect(() => {
-    if (defaultName) {
-      const existing = getUserPic(defaultName.trim().toUpperCase().replace(/\s+/g,'_'));
-      if (existing) setPhotoPrev(existing);
-    }
-  }, [defaultName]);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
