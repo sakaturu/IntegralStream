@@ -131,7 +131,7 @@ const extractYoutubeId=(url:string):string=>{
 const getEmbedUrl = (url:string):{embedUrl:string;type:'youtube'|'soundcloud'|'unknown'} => {
   if (url.includes('youtube.com')||url.includes('youtu.be')||url.includes('music.youtube')) {
     const id=extractYoutubeId(url).trim();
-    if (id) return {embedUrl:`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&enablejsapi=1&rel=0&playsinline=1`,type:'youtube'};
+    if (id) return {embedUrl:`https://www.youtube.com/embed/${id}?autoplay=1&enablejsapi=1&rel=0&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`,type:'youtube'};
   }
   if (url.includes('soundcloud.com')) {
     // Strip tracking params (si=, utm_*, in=, etc.) — widget only needs the base track URL
@@ -207,12 +207,14 @@ const VisualizerPickerOnly = ({onActivate}:{onActivate?:(mode?:number)=>void}) =
   );
 };
 
-const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=false}:{onActivate?:()=>void; active?:boolean; initialMode?:number; autoStart?:boolean}) => {
-  const canvasRef   = useRef<HTMLCanvasElement>(null);
-  const eqRef       = useRef<HTMLCanvasElement>(null);
-  const rafRef      = useRef<number>(0);
-  const audioRef    = useRef<{ctx:AudioContext;an:AnalyserNode;data:Uint8Array;wave:Uint8Array}|null>(null);
-  const modeRef     = useRef(0);
+const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=false, isPlaying=true}:{onActivate?:()=>void; active?:boolean; initialMode?:number; autoStart?:boolean; isPlaying?:boolean}) => {
+  const canvasRef     = useRef<HTMLCanvasElement>(null);
+  const eqRef         = useRef<HTMLCanvasElement>(null);
+  const rafRef        = useRef<number>(0);
+  const audioRef      = useRef<{ctx:AudioContext;an:AnalyserNode;data:Uint8Array;wave:Uint8Array}|null>(null);
+  const modeRef       = useRef(0);
+  const isPlayingRef  = useRef(isPlaying);
+  useEffect(()=>{ isPlayingRef.current = isPlaying; }, [isPlaying]);
   const prevModeRef = useRef(0);
   const morphRef    = useRef(0);
   const transitionTypeRef = useRef(0);
@@ -350,6 +352,11 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
     };
 
     const draw = () => {
+      if (!isPlayingRef.current) {
+        // Paused — keep requesting frames but don't advance time or redraw
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
       t += .007;
       const cw = canvas.width, ch = canvas.height;
 
@@ -1260,14 +1267,21 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   const {embedUrl,type}=useMemo(()=>currentTrack?getEmbedUrl(currentTrack.url):{embedUrl:'',type:'unknown' as const},[currentTrack?.url]);
 
-  // Control YouTube playback via postMessage instead of reloading iframe
+  // Control playback via postMessage
   useEffect(()=>{
-    const iframe = document.getElementById('yt-player') as HTMLIFrameElement|null;
-    if(!iframe||type!=='youtube') return;
-    const cmd = isPlaying
-      ? JSON.stringify({event:'command',func:'playVideo',args:''})
-      : JSON.stringify({event:'command',func:'pauseVideo',args:''});
-    try{ iframe.contentWindow?.postMessage(cmd,'*'); }catch{}
+    if(type==='youtube') {
+      const iframe = document.getElementById('yt-player') as HTMLIFrameElement|null;
+      if(!iframe) return;
+      const cmd = isPlaying
+        ? JSON.stringify({event:'command',func:'playVideo',args:''})
+        : JSON.stringify({event:'command',func:'pauseVideo',args:''});
+      try{ iframe.contentWindow?.postMessage(cmd,'https://www.youtube.com'); }catch{}
+    } else if(type==='soundcloud') {
+      const iframe = document.getElementById('sc-player') as HTMLIFrameElement|null;
+      if(!iframe) return;
+      const cmd = isPlaying ? 'play' : 'pause';
+      try{ iframe.contentWindow?.postMessage(JSON.stringify({method:cmd}),'https://w.soundcloud.com'); }catch{}
+    }
   },[isPlaying, currentTrackId, type]);
 
   const handleLikeTrack=(id:string,e:React.MouseEvent)=>{ e.stopPropagation(); setTracks(p=>p.map(t=>t.id===id?{...t,likeCount:(t.likeCount||0)+1}:t)); };
@@ -1514,8 +1528,10 @@ const MusicApp: React.FC<MusicAppProps> = ({
                   {/* Thumbnail */}
                   <div className={`w-20 h-14 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
                     <TrackThumbnail artist={track.artist} title={track.title} category={track.category} thumbnail={track.thumbnail||''} style={{width:'100%',height:'100%'}}/>
-                    {currentTrackId===track.id&&isPlaying&&(
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><i className="fa-solid fa-pause text-white text-sm"/></div>
+                    {currentTrackId===track.id&&(
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-sm`}/>
+                      </div>
                     )}
                   </div>
                   {/* Info */}
@@ -1587,7 +1603,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
             {/* Visualizer — always mounted, shown/hidden via opacity */}
             <div style={{position:'absolute',inset:0,zIndex:10,opacity:showVisualizer?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}}>
-              <VisualizerCanvas onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} autoStart={vizAutoStart}/>
+              <VisualizerCanvas onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} autoStart={vizAutoStart} isPlaying={isPlaying}/>
             </div>
 
             {/* Viz mode picker — shown when playing and not in viz mode */}
