@@ -7,6 +7,11 @@ import VaultGallery from './components/VaultGallery';
 import FloatingReviewHub from './components/FloatingReviewHub';
 import ModerationPanel from './components/ModerationPanel';
 import { getSampleLibrary, getSurpriseVideo, LIBRARY_VERSION, MASTER_IDENTITY, HARDCODED_FAVORITES } from './services/sampleData';
+import {
+  loadVideosFromFirestore, saveVideosToFirestore, subscribeToVideos,
+  loadMusicFromFirestore, saveMusicToFirestore, subscribeToMusic,
+  loadMusicReviewsFromFirestore, saveMusicReviewsToFirestore,
+} from './services/firebase';
 
 
 const DEFAULT_MUSIC_GENRES = ['Dance','Classical','Country','Rock','Jazz','Hip-Hop','Electronic','Pop','Other'];
@@ -1118,20 +1123,45 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [vizInitialMode, setVizInitialMode] = useState(0);
   const [vizAutoStart, setVizAutoStart] = useState(false);
 
+  // ── Firestore: load music on mount ──────────────────────────────────────────
   useEffect(()=>{
+    loadMusicFromFirestore().then(remote => {
+      if (remote && remote.length > 0) {
+        setTracks(remote);
+        try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(remote)); } catch {}
+      }
+    });
+    loadMusicReviewsFromFirestore().then(remote => {
+      if (remote && remote.length > 0) {
+        setReviews(remote);
+        try { localStorage.setItem(MUSIC_REVIEWS_KEY, JSON.stringify(remote)); } catch {}
+      }
+    });
+    // Live updates from other users
+    const unsubTracks = subscribeToMusic(remote => {
+      setTracks(remote);
+      try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(remote)); } catch {}
+    });
+    return () => { unsubTracks(); };
+  }, []);
+
+  // ── Firestore: save music on change (debounced 1.5s) ─────────────────────
+  useEffect(()=>{
+    const t = setTimeout(()=>{ saveMusicToFirestore(tracks); }, 1500);
+    // Also keep localStorage in sync as fallback
     try {
-      // Strip data-URL thumbnails before saving to avoid localStorage quota exceeded
       const stripped = tracks.map(t=>({...t, thumbnail: t.thumbnail?.startsWith('data:') ? '' : (t.thumbnail||'')}));
       localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(stripped));
-    } catch(e) {
-      // Quota exceeded — try saving without thumbnails at all
-      try {
-        const minimal = tracks.map(t=>({...t, thumbnail:''}));
-        localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(minimal));
-      } catch(e2) { console.warn('Music save failed', e2); }
-    }
+    } catch {}
+    return ()=> clearTimeout(t);
   },[tracks]);
-  useEffect(()=>{localStorage.setItem(MUSIC_REVIEWS_KEY,JSON.stringify(reviews));},[reviews]);
+
+  useEffect(()=>{
+    const t = setTimeout(()=>{ saveMusicReviewsToFirestore(reviews); }, 1500);
+    try { localStorage.setItem(MUSIC_REVIEWS_KEY, JSON.stringify(reviews)); } catch {}
+    return ()=> clearTimeout(t);
+  },[reviews]);
+
   useEffect(()=>{localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));},[genres]);
   useEffect(()=>{localStorage.setItem('integral_music_genre_colors_v1',JSON.stringify(genreColors));},[genreColors]);
 
@@ -1863,16 +1893,15 @@ const App: React.FC = () => {
   });
 
   const [videos, setVideos] = useState<VideoItem[]>(() => {
+    // Start with localStorage (fast, works offline/incognito as fallback)
     const currentSource = getSampleLibrary();
-    const currentSourceMap = new Map(currentSource.map(v => [v.url, v]));
     const savedDataStr = localStorage.getItem(DATA_KEY);
     const savedVersion = localStorage.getItem(VERSION_KEY);
     const isOldVersion = !savedVersion || parseInt(savedVersion, 10) < LIBRARY_VERSION;
-
     if (!savedDataStr || isOldVersion) return currentSource;
-    
     try {
       const baseData: VideoItem[] = JSON.parse(savedDataStr);
+      const currentSourceMap = new Map(currentSource.map(v => [v.url, v]));
       const syncedData = baseData.map(lv => {
         const sv = currentSourceMap.get(lv.url);
         if (sv) return { ...sv, id: lv.id, viewCount: lv.viewCount, likeCount: lv.likeCount, dislikeCount: lv.dislikeCount, reviews: lv.reviews || [] };
@@ -1886,7 +1915,25 @@ const App: React.FC = () => {
 
   const [currentVideoId, setCurrentVideoId] = useState<string | undefined>(videos[0]?.id);
 
+  // ── Firestore: load videos on mount & subscribe to live changes ───────────
   useEffect(() => {
+    loadVideosFromFirestore().then(remote => {
+      if (remote && remote.length > 0) {
+        setVideos(remote as VideoItem[]);
+        try { localStorage.setItem(DATA_KEY, JSON.stringify(remote)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
+      }
+    });
+    const unsub = subscribeToVideos(remote => {
+      setVideos(remote as VideoItem[]);
+      try { localStorage.setItem(DATA_KEY, JSON.stringify(remote)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
+    });
+    return () => unsub();
+  }, []);
+
+  // ── Firestore: save videos on change (debounced 1.5s) ────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => { saveVideosToFirestore(videos); }, 1500);
+    // Keep localStorage in sync as offline fallback
     try {
       localStorage.setItem(DATA_KEY, JSON.stringify(videos));
       localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString());
@@ -1894,13 +1941,12 @@ const App: React.FC = () => {
       localStorage.setItem(CAT_KEY, JSON.stringify(categories));
       localStorage.setItem(CAT_COLORS_KEY, JSON.stringify(categoryColors));
     } catch(e) {
-      // Quota exceeded - try saving without reviews/extras
       try {
         const minimal = videos.map(v=>({...v, reviews:[]}));
         localStorage.setItem(DATA_KEY, JSON.stringify(minimal));
-        localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString());
-      } catch(e2) { console.warn('Video save failed', e2); }
+      } catch {}
     }
+    return () => clearTimeout(t);
   }, [videos, isAuthorized, categories, categoryColors]);
 
   const currentUserFavorites = useMemo(() => userFavMap[currentUser] || [], [userFavMap, currentUser]);
