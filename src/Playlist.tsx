@@ -23,6 +23,8 @@ interface PlaylistProps {
   activeTab: VideoCategory | 'All' | 'Vault';
   setActiveTab: (tab: VideoCategory | 'All' | 'Vault') => void;
   isAuthorized: boolean;
+  onOpenMusicApp: () => void;
+  onWriteReview?: (videoId: string, rating: number, comment: string) => void;
 }
 
 const COLOR_PALETTE = [
@@ -52,17 +54,22 @@ const Playlist: React.FC<PlaylistProps> = ({
   activeTab, 
   setActiveTab, 
   isAuthorized,
+  onOpenMusicApp,
+  onWriteReview,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [mediaMode, setMediaMode] = useState<'video' | 'music'>('video');
+  const [search, setSearch] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newMediaType, setNewMediaType] = useState<'video' | 'music'>('video');
   const [newPrompt, setNewPrompt] = useState('');
   const [newCat, setNewCat] = useState<VideoCategory | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [reviewingVideoId, setReviewingVideoId] = useState<string | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [shareSuccessId, setShareSuccessId] = useState<string | null>(null);
-  
   const [isAddingCategoryInline, setIsAddingCategoryInline] = useState(false);
   const [inlineCategoryName, setInlineCategoryName] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLOR_PALETTE[0][0]);
@@ -105,10 +112,14 @@ const Playlist: React.FC<PlaylistProps> = ({
 
   const filteredVideos = useMemo(() => {
     const byMode = videos.filter(v => mediaMode === 'music' ? v.mediaType === 'music' : v.mediaType !== 'music');
-    if (activeTab === 'All') return byMode;
-    if (activeTab === 'Vault') return byMode.filter(v => userFavorites.includes(v.id));
-    return byMode.filter(v => v.category === activeTab);
-  }, [videos, activeTab, userFavorites, mediaMode]);
+    const bySearch = search === '' ? byMode : byMode.filter(v =>
+      v.prompt?.toLowerCase().includes(search.toLowerCase()) ||
+      v.category?.toLowerCase().includes(search.toLowerCase())
+    );
+    if (activeTab === 'All') return bySearch;
+    if (activeTab === 'Vault') return bySearch.filter(v => userFavorites.includes(v.id));
+    return bySearch.filter(v => v.category === activeTab);
+  }, [videos, activeTab, userFavorites, mediaMode, search]);
 
   const allTabs = useMemo(() => {
     const baseTabs = [{ name: 'All' as const }, { name: 'Vault' as const }];
@@ -202,30 +213,39 @@ const Playlist: React.FC<PlaylistProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
             Library Matrix
           </h3>
-          <div className="flex items-center gap-4">
-            {/* Video / Music Toggle */}
-            <div className="flex items-center bg-white/5 rounded-lg p-0.5 border border-white/10">
+          <div className="flex items-center gap-2">
+            {/* Video / Music Toggle — both fixed width, no layout shift */}
+            <div style={{display:'flex',alignItems:'center',background:'rgba(255,255,255,0.05)',borderRadius:8,padding:2,border:'1px solid rgba(255,255,255,0.1)',width:132,flexShrink:0}}>
               <button
                 onClick={() => setMediaMode('video')}
-                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${mediaMode === 'video' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white'}`}
+                style={{width:64,minWidth:64,height:24,borderRadius:6,fontSize:9,fontWeight:900,letterSpacing:'0.1em',display:'flex',alignItems:'center',justifyContent:'center',gap:4,flexShrink:0,border:'none',cursor:'pointer',transition:'background 0.15s,color 0.15s',background:mediaMode==='video'?'#2563eb':'transparent',color:mediaMode==='video'?'#fff':'#64748b'}}
               >
-                <i className="fa-solid fa-film mr-1"></i>Video
+                <i className="fa-solid fa-film" style={{fontSize:8}}></i> VIDEO
               </button>
               <button
-                onClick={() => setMediaMode('music')}
-                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${mediaMode === 'music' ? 'bg-purple-600 text-white' : 'text-slate-500 hover:text-white'}`}
+                onClick={onOpenMusicApp}
+                style={{width:64,minWidth:64,height:24,borderRadius:6,fontSize:9,fontWeight:900,letterSpacing:'0.1em',display:'flex',alignItems:'center',justifyContent:'center',gap:4,flexShrink:0,border:'none',cursor:'pointer',transition:'background 0.15s,color 0.15s',background:'transparent',color:'#64748b'}}
+                onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.color='#fff';}}
+                onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.color='#64748b';}}
               >
-                <i className="fa-solid fa-music mr-1"></i>Music
+                <i className="fa-solid fa-music" style={{fontSize:8}}></i> MUSIC
               </button>
             </div>
-            {isAuthorized && (
-              <button onClick={() => { if(confirm('Purge all?')) onPurgeAll(); }} className="text-[9px] font-black uppercase tracking-widest text-red-500 hover:text-red-400 transition-all flex items-center gap-2">
-                <i className="fa-solid fa-eraser text-[11px]"></i>
-              </button>
-            )}
-            <button onClick={onShuffle} title="Shuffle Mode" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center gap-2">
+            {/* Shuffle */}
+            <button onClick={onShuffle} title="Shuffle" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center">
               <i className="fa-solid fa-shuffle text-[11px]"></i>
             </button>
+            {/* Search */}
+            <div className="relative flex-shrink-0">
+              <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]"></i>
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="h-7 w-28 pl-7 pr-3 rounded-lg bg-white/5 border border-white/10 text-white text-[10px] font-bold placeholder-slate-600 focus:outline-none focus:border-blue-500/30"
+              />
+            </div>
+            {/* Add button — admin only */}
             {isAuthorized && (
               <button 
                 onClick={() => setShowAddForm(!showAddForm)}
@@ -322,15 +342,14 @@ const Playlist: React.FC<PlaylistProps> = ({
                 >
                   <i className={`fa-${isFavorited ? 'solid' : 'regular'} fa-heart text-[16px]`}></i>
                 </button>
-                {isAuthorized && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onMoveToFavPick(video.id); }} 
-                    className="text-pink-400 hover:text-pink-300 transition-all hover:scale-125"
-                    title="Add to Fav. Pick"
-                  >
-                    <i className="fa-solid fa-plus text-[13px]"></i>
-                  </button>
-                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setReviewingVideoId(video.id); setReviewRating(5); setReviewComment(''); }}
+                  className="text-slate-600 hover:text-yellow-400 transition-all hover:scale-125"
+                  title="Rate"
+                >
+                  <i className="fa-regular fa-star text-[13px]"></i>
+                </button>
+
                 {isAuthorized && (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="text-red-500 transition-all hover:scale-125" title="Delete Video">
                     <i className="fa-solid fa-xmark text-[13px]"></i>
@@ -370,6 +389,35 @@ const Playlist: React.FC<PlaylistProps> = ({
           );
         })}
       </div>
+      {reviewingVideoId && (() => {
+        const vid = videos.find(v => v.id === reviewingVideoId);
+        return (
+          <div className="fixed inset-0 z-[400] bg-black/80 backdrop-blur-sm flex items-center justify-center" onClick={() => setReviewingVideoId(null)}>
+            <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">Rate Video</h4>
+              {vid && <p className="text-sm font-bold text-white mb-4 truncate">{vid.prompt}</p>}
+              <div className="flex items-center gap-1 mb-4 justify-center">
+                {[1,2,3,4,5].map(s => (
+                  <button key={s} onClick={() => setReviewRating(s)} className="transition-transform hover:scale-125">
+                    <i className={`fa-${s <= reviewRating ? 'solid' : 'regular'} fa-star text-2xl ${s <= reviewRating ? 'text-yellow-400' : 'text-slate-700'}`}></i>
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={reviewComment}
+                onChange={e => setReviewComment(e.target.value)}
+                placeholder="Write your review..."
+                rows={3}
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[11px] text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/30 resize-none mb-4"
+              />
+              <div className="flex gap-2">
+                <button onClick={() => setReviewingVideoId(null)} className="flex-1 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[9px] font-black uppercase">Cancel</button>
+                <button onClick={() => { onWriteReview?.(reviewingVideoId!, reviewRating, reviewComment); setReviewingVideoId(null); setReviewRating(5); setReviewComment(''); }} className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-black uppercase">Submit</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { VideoItem } from '../types';
 
 interface VideoPlayerProps {
@@ -6,205 +6,234 @@ interface VideoPlayerProps {
   isFavorite?: boolean;
   isPlaying: boolean;
   onPlayStateChange: (isPlaying: boolean) => void;
-  onEnded?: () => void;
   onToggleLike?: () => void;
   onToggleDislike?: () => void;
   onToggleFavorite?: () => void;
-  onViewIncrement?: () => void;
   onWriteReview?: () => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
-  video, 
+const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  video,
   isFavorite = false,
-  isPlaying, 
-  onPlayStateChange, 
-  onEnded, 
-  onToggleLike, 
+  isPlaying,
+  onPlayStateChange,
+  onToggleLike,
   onToggleDislike,
   onToggleFavorite,
-  onViewIncrement,
-  onWriteReview
+  onWriteReview,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [isSyncing, setIsSyncing] = useState(true);
-  const [showControls, setShowControls] = useState(false);
-  const [viewCounted, setViewCounted] = useState(false);
-  const controlsTimeoutRef = useRef<number | null>(null);
+  const iframeRef   = useRef<HTMLIFrameElement>(null);
+  const [hovered, setHovered]     = useState(false);
+  const [flashIcon, setFlashIcon] = useState<'play'|'pause'|null>(null);
+  const [iframeSrc, setIframeSrc] = useState('');
+  const [showPauseScreen, setShowPauseScreen] = useState(false);
+  const flashTimer  = useRef<ReturnType<typeof setTimeout>>();
+  const prevYtId    = useRef<string | null>(null);
 
-  const getCleanId = (input: string) => {
-    if (!input) return null;
-    const trimmed = input.trim();
-    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
-    const regExp = /^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|\&v(?:i)?=))([^#\&\?]*).*/;
-    const match = trimmed.match(regExp);
-    return (match && match[1] && match[1].length === 11) ? match[1] : null;
+  const getSimpleId = (url: string) => {
+    if (!url) return null;
+    if (url.includes('youtu.be/'))  return url.split('youtu.be/')[1]?.split(/[?&#]/)[0];
+    if (url.includes('/shorts/'))   return url.split('/shorts/')[1]?.split(/[?&#]/)[0];
+    if (url.includes('/embed/'))    return url.split('/embed/')[1]?.split(/[?&#]/)[0];
+    if (url.includes('v='))         return url.split('v=')[1]?.split(/[&#]/)[0];
+    return null;
   };
 
-  const youtubeId = useMemo(() => video ? getCleanId(video.url) : null, [video?.url]);
-  const isYouTube = !!youtubeId && video?.mediaType !== 'music';
-  const isSoundCloud = video?.mediaType === 'music' || (video?.url || '').includes('soundcloud.com');
-  const soundCloudUrl = isSoundCloud ? `https://w.soundcloud.com/player/?url=${encodeURIComponent(video?.url || '')}&color=%23a855f7&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false` : '';
-  const videoId = video?.id;
+  const ytId = useMemo(() => video ? getSimpleId(video.url) : null, [video?.url]);
 
-  useEffect(() => {
-    setIsSyncing(true);
-    setViewCounted(false);
-    const timer = setTimeout(() => setIsSyncing(false), 800);
-    return () => clearTimeout(timer);
-  }, [videoId]);
-
-  useEffect(() => {
-    if (isPlaying && !viewCounted && videoId && video?.status === 'ready') {
-      const timer = window.setTimeout(() => {
-        onViewIncrement?.();
-        setViewCounted(true);
-      }, 5000);
-      return () => window.clearTimeout(timer);
-    }
-  }, [isPlaying, viewCounted, onViewIncrement, videoId, video?.status]);
-
-  useEffect(() => {
-    if (!isYouTube) return;
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== "https://www.youtube.com") return;
-      try {
-        const data = JSON.parse(event.data);
-        if (data.event === 'onStateChange') {
-          if (data.info === 0) onEnded?.();
-          else if (data.info === 1) onPlayStateChange(true);
-          else if (data.info === 2) onPlayStateChange(false);
-        }
-      } catch (e) {}
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [isYouTube, onEnded, onPlayStateChange]);
-
-  const sendYoutubeCommand = (func: string, args: any = '') => {
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(JSON.stringify({ event: 'command', func: func, args: args }), '*');
-    }
+  const postCmd = (cmd: string) => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ event: 'command', func: cmd, args: [] }), '*'
+      );
+    } catch {}
   };
 
+  // Only reload iframe when video changes — NEVER on play/pause
   useEffect(() => {
-    if (isYouTube) {
-      if (isPlaying) {
-        // Retry play command a few times to handle iframe not ready
-        sendYoutubeCommand('playVideo');
-        const t1 = setTimeout(() => sendYoutubeCommand('playVideo'), 500);
-        const t2 = setTimeout(() => sendYoutubeCommand('playVideo'), 1200);
-        sendYoutubeCommand('unMute');
-        sendYoutubeCommand('setVolume', 80);
-        return () => { clearTimeout(t1); clearTimeout(t2); };
-      } else {
-        sendYoutubeCommand('pauseVideo');
-      }
-    } else if (videoRef.current) {
-      if (isPlaying) videoRef.current.play().catch(() => {});
-      else videoRef.current.pause();
-      videoRef.current.volume = 0.8;
-      videoRef.current.muted = false;
-    }
-  }, [isPlaying, isYouTube, videoId]);
-
-  const handlePlayerClick = () => {
-    const nextPlaying = !isPlaying;
-    onPlayStateChange(nextPlaying);
-    setShowControls(!nextPlaying);
-  };
-
-  const triggerControls = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
-    controlsTimeoutRef.current = window.setTimeout(() => { if (isPlaying) setShowControls(false); }, 2500);
-  };
-
-  if (!video) {
-    return (
-      <div className="w-full aspect-video rounded-[2rem] overflow-hidden bg-slate-950 border border-white/5 flex flex-col items-center justify-center">
-        <div className="w-16 h-16 rounded-full bg-slate-900 border border-white/5 flex items-center justify-center mb-4">
-          <i className="fa-solid fa-cloud text-slate-800 text-xl"></i>
-        </div>
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-800">Archive Standby</p>
-      </div>
+    if (!ytId || prevYtId.current === ytId) return;
+    prevYtId.current = ytId;
+    setShowPauseScreen(false);
+    // autoplay=1 always — let it start, we control pause via postMessage + overlay
+    setIframeSrc(
+      `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=${isPlaying ? 1 : 0}&controls=0&rel=0&playsinline=1&enablejsapi=1&modestbranding=1`
     );
-  }
+  }, [ytId]);
 
-  const youtubeUrl = isYouTube 
-    ? `https://www.youtube.com/embed/${youtubeId}?autoplay=0&mute=0&rel=0&modestbranding=1&controls=0&enablejsapi=1&origin=${window.location.origin}`
-    : '';
+  // Listen for YouTube events
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      try {
+        const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (d?.event === 'onStateChange') {
+          const s = Number(d?.info);
+          if (s === 1) { setShowPauseScreen(false); onPlayStateChange(true); }
+          if (s === 2) { onPlayStateChange(false); }
+          if (s === 0) { onPlayStateChange(false); }
+        }
+      } catch {}
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [onPlayStateChange]);
 
-  const isHUDVisible = !isPlaying || showControls;
+  // When isPlaying changes from parent — use postMessage, NO iframe reload
+  const prevIsPlaying = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (prevIsPlaying.current === isPlaying) return;
+    prevIsPlaying.current = isPlaying;
+    if (!ytId) return;
+
+    if (isPlaying) {
+      setShowPauseScreen(false);
+      postCmd('playVideo');
+    } else {
+      setShowPauseScreen(true);
+      postCmd('pauseVideo');
+    }
+  }, [isPlaying, ytId]);
+
+  const showFlash = (type: 'play' | 'pause') => {
+    clearTimeout(flashTimer.current);
+    setFlashIcon(type);
+    flashTimer.current = setTimeout(() => setFlashIcon(null), 900);
+  };
+
+  // Click = toggle using postMessage only, NO reload
+  const handleClick = () => {
+    if (!ytId) return;
+    if (isPlaying) {
+      postCmd('pauseVideo');
+      setShowPauseScreen(true);
+      onPlayStateChange(false);
+      showFlash('pause');
+    } else {
+      postCmd('playVideo');
+      setShowPauseScreen(false);
+      onPlayStateChange(true);
+      showFlash('play');
+    }
+  };
+
+  if (!video || !ytId) return null;
+
+  const showOverlay = showPauseScreen || hovered;
 
   return (
-    <div 
-      ref={containerRef}
-      className="relative w-full h-full bg-black group animate-fade-in"
-      onMouseMove={triggerControls}
-      onMouseLeave={() => isPlaying && setShowControls(false)}
+    <div
+      className="w-full bg-black rounded-[1.5rem] overflow-hidden border border-white/5 shadow-2xl"
+      style={{ aspectRatio: '16/9', position: 'relative' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      <div 
-        onClick={handlePlayerClick}
-        className={`absolute inset-0 z-10 cursor-pointer transition-opacity duration-500 ${isHUDVisible ? 'opacity-100' : 'opacity-0'} bg-gradient-to-t from-black/60 via-transparent to-black/20`}
-      ></div>
+      {/* iframe — only changes src when video changes, NOT on pause/play */}
+      <iframe
+        ref={iframeRef}
+        src={iframeSrc}
+        className="w-full h-full border-0 absolute inset-0"
+        allow="autoplay; encrypted-media; fullscreen"
+        allowFullScreen
+        title="Video Player"
+        style={{ zIndex: 1 }}
+      />
 
-      <div className={`absolute top-8 left-8 z-20 flex flex-col gap-4 transition-all duration-700 ease-out ${isHUDVisible ? 'translate-x-0 opacity-100' : '-translate-x-8 opacity-0'}`}>
-        <button 
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.(); }}
-          className={`w-12 h-12 rounded-2xl glass border flex items-center justify-center transition-all hover:scale-110 active:scale-90 ${
-            isFavorite ? 'bg-red-600/40 border-red-500/60 text-[#ff3b3b] shadow-[0_0_30px_rgba(255,59,59,0.7)]' : 'bg-black/40 border-white/10 text-slate-500 hover:text-white'
-          }`}
+      {/* Fake pause screen — covers iframe but doesn't reload it */}
+      {showPauseScreen && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ zIndex: 6, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
         >
-          <i className={`fa-${isFavorite ? 'solid' : 'regular'} fa-heart text-lg drop-shadow-[0_0_2px_rgba(0,0,0,0.5)]`}></i>
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); if (document.fullscreenElement) document.exitFullscreen(); else containerRef.current?.requestFullscreen().catch(() => {}); }}
-          className="w-12 h-12 rounded-2xl glass border bg-black/40 border-white/10 text-slate-500 hover:text-white flex items-center justify-center transition-all hover:scale-110 active:scale-90"
-          title="Fullscreen"
-        >
-          <i className="fa-solid fa-expand text-lg"></i>
-        </button>
-      </div>
+          <div style={{
+            width: 80, height: 80, borderRadius: '50%',
+            background: 'rgba(0,0,0,0.7)',
+            border: '2px solid rgba(255,255,255,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div style={{ width: 0, height: 0, borderTop: '18px solid transparent', borderBottom: '18px solid transparent', borderLeft: '32px solid #fff', marginLeft: 6 }} />
+          </div>
+        </div>
+      )}
 
-      <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-20 transition-all duration-700 ease-out ${isHUDVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'}`}>
-        <div className="flex items-center gap-3 bg-slate-900/90 backdrop-blur-2xl border border-white/10 rounded-2xl p-2 shadow-2xl">
-          <button onClick={(e) => { e.stopPropagation(); onToggleLike?.(); }} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${video.isLiked ? 'bg-blue-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'}`}><i className="fa-solid fa-thumbs-up"></i></button>
-          <button onClick={(e) => { e.stopPropagation(); onToggleDislike?.(); }} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${video.isDisliked ? 'bg-red-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'}`}><i className="fa-solid fa-thumbs-down"></i></button>
-          <div className="w-px h-6 bg-white/10 mx-1"></div>
-          <button onClick={(e) => { e.stopPropagation(); onWriteReview?.(); }} className="w-10 h-10 rounded-xl bg-white/10 text-white flex items-center justify-center transition-all hover:bg-white/20"><i className="fa-solid fa-pen-nib"></i></button>
+      {/* Click layer */}
+      <div
+        className="absolute inset-0 cursor-pointer"
+        style={{ zIndex: 10 }}
+        onClick={handleClick}
+      />
+
+      {/* Flash icon */}
+      {flashIcon && (
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 110, height: 110, borderRadius: '50%',
+          background: 'rgba(0,0,0,0.72)',
+          border: '3px solid rgba(255,255,255,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none', zIndex: 30,
+          animation: 'isFlashFade 0.9s ease forwards',
+        }}>
+          {flashIcon === 'pause'
+            ? <div style={{ display: 'flex', gap: 11 }}>
+                <div style={{ width: 12, height: 42, background: '#fff', borderRadius: 3 }} />
+                <div style={{ width: 12, height: 42, background: '#fff', borderRadius: 3 }} />
+              </div>
+            : <div style={{ width: 0, height: 0, borderTop: '22px solid transparent', borderBottom: '22px solid transparent', borderLeft: '38px solid #fff', marginLeft: 9 }} />
+          }
+        </div>
+      )}
+
+      {/* Overlay gradient + buttons */}
+      <div
+        className="absolute inset-0 flex flex-col justify-between"
+        style={{
+          zIndex: 20,
+          opacity: showOverlay ? 1 : 0,
+          transition: 'opacity 0.3s ease',
+          pointerEvents: 'none',
+          background: showOverlay
+            ? 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 35%, transparent 55%, rgba(0,0,0,0.75) 100%)'
+            : 'transparent',
+        }}
+      >
+        <div
+          className="flex justify-end p-3 gap-2"
+          style={{ pointerEvents: 'auto' }}
+          onClick={e => e.stopPropagation()}
+        >
+          <button onClick={onToggleLike} className="w-9 h-9 rounded-xl bg-black/60 backdrop-blur-sm hover:bg-green-500/20 flex items-center justify-center text-slate-300 hover:text-green-400 border border-white/10 hover:border-green-500/40 transition-all" title="Like">
+            <i className="fa-solid fa-thumbs-up text-xs" />
+          </button>
+          <button onClick={onToggleDislike} className="w-9 h-9 rounded-xl bg-black/60 backdrop-blur-sm hover:bg-red-500/20 flex items-center justify-center text-slate-300 hover:text-red-400 border border-white/10 hover:border-red-500/40 transition-all" title="Dislike">
+            <i className="fa-solid fa-thumbs-down text-xs" />
+          </button>
+          <button onClick={onWriteReview} className="w-9 h-9 rounded-xl bg-black/60 backdrop-blur-sm hover:bg-purple-500/20 flex items-center justify-center text-slate-300 hover:text-purple-400 border border-white/10 hover:border-purple-500/40 transition-all" title="Review">
+            <i className="fa-solid fa-pen-nib text-xs" />
+          </button>
+          <button
+            onClick={onToggleFavorite}
+            className={`w-9 h-9 rounded-xl backdrop-blur-sm border flex items-center justify-center transition-all ${isFavorite ? 'bg-red-500/30 border-red-500/60 text-red-400' : 'bg-black/60 border-white/10 text-slate-300 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/20'}`}
+            title="Favorite"
+          >
+            <i className={`fa-${isFavorite ? 'solid' : 'regular'} fa-heart text-xs`} />
+          </button>
+        </div>
+
+        <div className="px-5 pb-4 pt-8">
+          <p className="text-[9px] font-black uppercase tracking-widest text-blue-400/80 mb-0.5">{video.category}</p>
+          <h2 className="text-[14px] font-bold text-white leading-tight" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.8)' }}>
+            {video.prompt || video.title || 'Untitled'}
+          </h2>
         </div>
       </div>
 
-      <div className="w-full h-full relative bg-black">
-        {isSoundCloud ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-purple-950/80 to-black p-8">
-            <i className="fa-brands fa-soundcloud text-orange-500 text-[60px] mb-6"></i>
-            <iframe
-              width="100%"
-              height="166"
-              scrolling="no"
-              frameBorder="no"
-              src={soundCloudUrl}
-              className="rounded-xl"
-            />
-            <p className="text-slate-400 text-[11px] mt-4 font-black uppercase tracking-widest">{video?.prompt}</p>
-          </div>
-        ) : isYouTube ? (
-          <div className="w-full h-full relative">
-            {isSyncing && (
-              <div className="absolute inset-0 z-30 bg-black flex flex-col items-center justify-center gap-4">
-                <div className="w-8 h-8 border-2 border-white/10 border-t-blue-500 rounded-full animate-spin"></div>
-              </div>
-            )}
-            <iframe ref={iframeRef} width="100%" height="100%" src={youtubeUrl} frameBorder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" className="w-full h-full pointer-events-none"></iframe>
-          </div>
-        ) : (
-          <video key={video.url} ref={videoRef} src={video.url} playsInline className="w-full h-full object-cover" onPlay={() => onPlayStateChange(true)} onPause={() => onPlayStateChange(false)} onEnded={onEnded} />
-        )}
-      </div>
+      <style>{`
+        @keyframes isFlashFade {
+          0%   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          60%  { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+          100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+        }
+      `}</style>
     </div>
   );
 };

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Player</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: sans-serif;
+  }
+  #wrap { width: 680px; max-width: 96vw; }
+  #stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px #000;
+  }
+
+  /* video fills the whole stage and is the click target */
+  #vid {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    object-fit: contain;
+    background: #000;
+    cursor: pointer;
+    z-index: 1;
+  }
+
+  /* big icon sits ABOVE video, but pointer-events:none so it never blocks clicks */
+  #bigIcon {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 130px; height: 130px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    border: 3px solid rgba(255,255,255,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .i-pause { display:flex; gap:12px; }
+  .i-pause b { display:block; width:13px; height:44px; background:#fff; border-radius:4px; }
+  .i-play {
+    width:0; height:0;
+    border-top: 24px solid transparent;
+    border-bottom: 24px solid transparent;
+    border-left: 42px solid #fff;
+    margin-left: 10px;
+  }
+
+  /* bottom bar also pointer-events:none on wrapper, individual elements have their own */
+  #bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 14px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.8));
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 20;
+    pointer-events: none; /* bar background won't block video clicks */
+  }
+  #playBtn {
+    pointer-events: all; /* but the button itself is clickable */
+    background: none; border: none;
+    cursor: pointer;
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .b-play { width:0; height:0; border-top:9px solid transparent; border-bottom:9px solid transparent; border-left:16px solid #fff; }
+  .b-pause { display:flex; gap:5px; }
+  .b-pause b { display:block; width:5px; height:18px; background:#fff; border-radius:2px; }
+
+  #prog {
+    pointer-events: all;
+    flex: 1; height: 5px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  #progFill { height:100%; width:0%; background:#fff; border-radius:5px; pointer-events:none; }
+  #time { color:rgba(255,255,255,0.8); font-size:12px; white-space:nowrap; }
+
+  #ph {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px;
+    color: rgba(255,255,255,0.3);
+    font-size: 14px;
+    z-index: 5;
+    cursor: pointer;
+  }
+  #hint {
+    margin-top: 12px; text-align:center;
+    color: rgba(255,255,255,0.15);
+    font-size:11px; letter-spacing:2px; text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <div id="ph">
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+        <rect x="2" y="9" width="36" height="26" rx="4" stroke="white" stroke-width="2" opacity=".35"/>
+        <path d="M38 19l12-7v22l-12-7V19z" stroke="white" stroke-width="2" opacity=".35"/>
+      </svg>
+      Click to load a video
+    </div>
+
+    <video id="vid" preload="metadata"></video>
+
+    <div id="bigIcon"></div>
+
+    <div id="bar">
+      <button id="playBtn"><div class="b-play" id="btnIcon"></div></button>
+      <div id="prog"><div id="progFill"></div></div>
+      <span id="time">0:00 / 0:00</span>
+    </div>
+  </div>
+  <div id="hint">click video · space = play / pause</div>
+</div>
+<input type="file" id="fi" accept="video/*" style="display:none">
+
+<script>
+  const vid      = document.getElementById('vid');
+  const ph       = document.getElementById('ph');
+  const fi       = document.getElementById('fi');
+  const bigIcon  = document.getElementById('bigIcon');
+  const playBtn  = document.getElementById('playBtn');
+  const btnIcon  = document.getElementById('btnIcon');
+  const progFill = document.getElementById('progFill');
+  const prog     = document.getElementById('prog');
+  const timeEl   = document.getElementById('time');
+
+  let autoHide;
+  let hasVideo = false;
+
+  function fmt(s) {
+    s = Math.floor(s || 0);
+    return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  }
+
+  function showBig(type, fadeAfter) {
+    clearTimeout(autoHide);
+    bigIcon.innerHTML = type === 'pause'
+      ? '<div class="i-pause"><b></b><b></b></div>'
+      : '<div class="i-play"></div>';
+    bigIcon.style.opacity = '1';
+    if (fadeAfter > 0) {
+      autoHide = setTimeout(() => { bigIcon.style.opacity = '0'; }, fadeAfter);
+    }
+  }
+
+  function setBtn(playing) {
+    btnIcon.outerHTML = playing
+      ? '<div class="b-pause" id="btnIcon"><b></b><b></b></div>'
+      : '<div class="b-play" id="btnIcon"></div>';
+  }
+
+  function toggle() {
+    if (!hasVideo) return;
+    console.log('toggle called, paused=', vid.paused);
+    if (vid.paused) {
+      vid.play();
+    } else {
+      vid.pause();
+    }
+  }
+
+  // ── Click directly on the video element ──
+  vid.addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggle();
+  });
+
+  // ── placeholder click = load file ──
+  ph.addEventListener('click', function() {
+    fi.click();
+  });
+
+  // ── bottom play button ──
+  playBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggle();
+  });
+
+  // ── file input ──
+  fi.addEventListener('change', function() {
+    const f = fi.files[0];
+    if (!f) return;
+    vid.src = URL.createObjectURL(f);
+    ph.style.display = 'none';
+    hasVideo = true;
+    vid.play();
+  });
+
+  // ── drag & drop ──
+  document.getElementById('stage').addEventListener('dragover', e => e.preventDefault());
+  document.getElementById('stage').addEventListener('drop', function(e) {
+    e.preventDefault();
+    const f = [...e.dataTransfer.files].find(f => f.type.startsWith('video/'));
+    if (!f) return;
+    vid.src = URL.createObjectURL(f);
+    ph.style.display = 'none';
+    hasVideo = true;
+    vid.play();
+  });
+
+  // ── video events (source of truth) ──
+  vid.addEventListener('play', function() {
+    console.log('▶ play event');
+    setBtn(true);
+    showBig('pause', 1800);
+  });
+
+  vid.addEventListener('pause', function() {
+    console.log('⏸ pause event');
+    setBtn(false);
+    showBig('play', 0);
+  });
+
+  vid.addEventListener('ended', function() {
+    setBtn(false);
+    showBig('play', 0);
+  });
+
+  vid.addEventListener('timeupdate', function() {
+    if (!vid.duration) return;
+    progFill.style.width = (vid.currentTime / vid.duration * 100) + '%';
+    timeEl.textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration);
+  });
+
+  prog.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (!vid.duration) return;
+    const r = prog.getBoundingClientRect();
+    vid.currentTime = ((e.clientX - r.left) / r.width) * vid.duration;
+  });
+
+  // ── spacebar ──
+  document.addEventListener('keydown', function(e) {
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  });
+</script>
+</body>
+</html>
