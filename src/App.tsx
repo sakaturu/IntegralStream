@@ -44,6 +44,7 @@ interface MusicAppProps {
   currentUser:string; isAuthorized:boolean; onClose:()=>void;
   nodeId?:string; isUserLocked?:boolean;
   pendingReviewsCount?:number; onLogout?:()=>void; onAdminClick?:()=>void;
+  showUserPlaylist?:boolean; onToggleUserPlaylist?:()=>void;
 }
 
 // ─── Shared auth constants (must match APP.tsx) ─────────────────────────────
@@ -1188,7 +1189,7 @@ const MusicPlaylistButton: React.FC<{
 
 
 const MusicApp: React.FC<MusicAppProps> = ({
-  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{},
+  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{},
 }) => {
   // ── Identity: read/write same keys as APP.tsx ─────────────────────────────
   const [currentUser,  setCurrentUser]  = useState<string>(()=> localStorage.getItem(USER_KEY) || currentUserProp);
@@ -1288,6 +1289,15 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [newGenre,   setNewGenre]   = useState('');
   const [newGenreColor,setNewGenreColor]=useState(COLOR_PALETTE[0][0]);
   const [confirmDeleteId,setConfirmDeleteId]=useState<string|null>(null);
+  useEffect(()=>{
+    const handler=(e:Event)=>{
+      const id=(e as CustomEvent).detail;
+      setTracks(p=>p.filter(t=>t.id!==id));
+      setConfirmDeleteId(null);
+    };
+    window.addEventListener('integral-remove-track',handler);
+    return()=>window.removeEventListener('integral-remove-track',handler);
+  },[]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [queueTab,   setQueueTab]   = useState<'All'|'Queue'>('All');
   const [showVisualizer, setShowVisualizer] = useState(false);
@@ -1324,6 +1334,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     try {
       const stripped = tracks.map(t=>({...t, thumbnail: t.thumbnail?.startsWith('data:') ? '' : (t.thumbnail||'')}));
       localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(stripped));
+      window.dispatchEvent(new StorageEvent('storage', { key: SHARED_MUSIC_KEY, newValue: JSON.stringify(stripped) }));
     } catch {}
     return ()=> clearTimeout(t);
   },[tracks]);
@@ -1339,6 +1350,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||null,[tracks,currentTrackId]);
   const filteredTracks=useMemo(()=>tracks.filter(t=>{
+    // User-uploaded tracks (addedBy set) hidden from global list — only in user's own playlist
+    if(t.addedBy && t.addedBy!==MASTER_IDENTITY) return false;
     if(activeTab==='Vault')return t.isFavorite;
     if(activeTab!=='All'&&t.category!==activeTab)return false;
     return search===''||t.artist.toLowerCase().includes(search.toLowerCase())||t.title.toLowerCase().includes(search.toLowerCase());
@@ -1465,7 +1478,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     const del=isAuthorized&&!['All','Vault'].includes(tab.name);
     return(
       <div key={tab.name} className="relative group/tab">
-        <button onClick={()=>setActiveTab(tab.name)} style={getTabStyles(tab.name)}
+        <button onClick={()=>{setActiveTab(tab.name);if(showUserPlaylist)onToggleUserPlaylist();}} style={getTabStyles(tab.name)}
           className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center px-1 border cursor-pointer">
           <span className="truncate w-full text-center px-1">{tab.name}</span>
         </button>
@@ -1488,7 +1501,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     <div className="fixed inset-0 z-[300] bg-black text-slate-100 flex flex-col font-sans">
 
       {/* ── Header ── */}
-      <header className="h-20 flex-shrink-0 border-b border-white/5 bg-black/60 backdrop-blur-xl flex items-center justify-between px-8 z-50">
+      <header className="h-20 flex-shrink-0 border-b border-white/5 bg-black/60 backdrop-blur-xl flex items-center justify-between px-8 z-50 relative">
         <div className="flex items-center gap-4">
           <div className="hover:rotate-[360deg] transition-transform duration-700"><IntegralLogo/></div>
           <div className="flex flex-col">
@@ -1496,18 +1509,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Personalized Archive</p>
           </div>
         </div>
+        {currentUser!==MASTER_IDENTITY&&currentUser!==''&&(<button onClick={onToggleUserPlaylist} className={`absolute left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showUserPlaylist?'bg-white text-black shadow-lg':'border-white/10 bg-white/5 text-slate-400 hover:text-white hover:border-white/20'}`}><i className="fa-solid fa-list text-sm"/><span>{currentUser.replace(/_/g,' ')} Playlist</span></button>)}
         <div className="flex gap-3 items-center">
-          {isAuthorized&&pendingReviews.length>0&&(
-            <button onClick={()=>{setShowReviewPanel(true);setQueueTab('Queue');}} className="relative px-3 h-9 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-widest hover:bg-blue-600/20 transition-all">
-              Reviews
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-blue-600 rounded-full text-[10px] font-black flex items-center justify-center border-2 border-black">{pendingReviews.length}</span>
-            </button>
-          )}
-          <button onClick={()=>setShowReviewPanel(p=>!p)} className="px-3 h-9 rounded-xl bg-purple-600/10 border border-purple-500/20 text-purple-400 text-[10px] font-black uppercase tracking-widest hover:bg-purple-600/20 transition-all">
-            <i className="fa-solid fa-star mr-1"/>Reviews
-          </button>
+
           {/* Identify button */}
-          <button onClick={()=>{ setShowIdentify(true); setIdentifyName(isUserLocked?currentUser.replace(/_/g,' '):''); setIdentifyErr(''); setIdentifyPic(getUserPic(currentUser)); }} className="px-4 h-11 rounded-xl border flex items-center gap-3 bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition-all">
+          <button onClick={()=>{ if(isUserLocked){handleIdentifyLogout();}else{setShowIdentify(true);setIdentifyName('');setIdentifyErr('');setIdentifyPic(getUserPic(currentUser));} }} className="px-4 h-11 rounded-xl border flex items-center gap-3 bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition-all">
             <div className="flex flex-col items-end">
               <span className="text-[7px] font-black uppercase tracking-widest opacity-60">{isUserLocked?'My Archive':'Identify'}</span>
               <span className="text-[10px] font-black uppercase tracking-widest">{currentUser.replace(/_/g,' ')}</span>
@@ -1599,13 +1605,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Music Archive
                 </h3>
-                <button
-                  onClick={()=>setShowAddForm(p=>!p)}
-                  className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`}
-                  title="Add track"
-                >
-                  <i className="fa-solid fa-plus text-[9px]"/>
-                </button>
+                {isUserLocked&&currentUser!==MASTER_IDENTITY&&(
+                  <button onClick={()=>setShowAddForm(p=>!p)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`} title="Add track"><i className="fa-solid fa-plus text-[9px]"/></button>
+                )}
               </div>
               {/* Right: toggle + shuffle + search */}
               <div className="flex items-center gap-2">
@@ -1684,13 +1686,43 @@ const MusicApp: React.FC<MusicAppProps> = ({
           </div>
 
           {/* Track list */}
-          <div className="flex-1 overflow-y-auto px-4 custom-scrollbar pb-10 space-y-1">
-            {filteredTracks.length===0?(
-              <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
-                <i className="fa-solid fa-music text-3xl text-slate-700 mb-6"/>
-                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
+          <div className="flex-1 overflow-y-auto px-4 custom-scrollbar pb-10">
+            {showUserPlaylist?(
+              <div className="space-y-1 pt-2">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">{currentUser.replace(/_/g,' ')} Playlist <span className="text-slate-600">· {tracks.filter(t=>t.addedBy===currentUser).length} tracks</span></p>
+                  <button onClick={onToggleUserPlaylist} className="text-slate-600 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-xs"/></button>
+                </div>
+                {tracks.filter(t=>t.addedBy===currentUser).length===0?(
+                  <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-700"><i className="fa-solid fa-music text-3xl"/><p className="text-[9px] font-black uppercase tracking-widest">No tracks uploaded yet</p></div>
+                ):tracks.filter(t=>t.addedBy===currentUser).map(track=>(
+                <div key={track.id} onClick={()=>handleSelectTrack(track)} className={`flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer border relative ${currentTrackId===track.id?'bg-white/15 border-white/20 shadow-lg':'bg-transparent border-transparent hover:bg-white/5'}`}>
+                  <div className={`w-20 h-14 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
+                    <TrackThumbnail artist={track.artist} title={track.title} category={track.category} thumbnail={track.thumbnail||''} style={{width:'100%',height:'100%'}}/>
+                    {currentTrackId===track.id&&(<div className="absolute inset-0 bg-black/50 flex items-center justify-center"><i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-sm`}/></div>)}
+                  </div>
+                  <div className="flex-1 overflow-hidden flex flex-col justify-center gap-1 min-w-0">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-purple-400 truncate">{track.artist}</p>
+                    <p className="text-[13px] font-bold leading-tight truncate text-slate-300">{track.title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-1.5 py-0.5 rounded-md border text-[8px] font-black uppercase shrink-0" style={getTagStyles(track.category)}>{track.category}</span>
+                      <span className="text-orange-500 text-[8px] font-black uppercase">Listened::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1">{track.playCount||0}</span>
+                      <span className="text-slate-700 text-[8px]">|</span>
+                      <span className="text-blue-500 text-[8px] font-black uppercase ml-1">Liked::</span><span className="text-white text-[8px] font-black ml-0.5">{track.likeCount||0}</span>
+                    </div>
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();handleRemoveTrack(track.id);}} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all flex-shrink-0 border border-white/5"><i className="fa-solid fa-xmark text-[11px]"/></button>
+                </div>
+                ))}
               </div>
-            ):filteredTracks.map(track=>{
+            ):(
+              <div className="space-y-1">
+                {filteredTracks.length===0?(
+                  <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
+                    <i className="fa-solid fa-music text-3xl text-slate-700 mb-6"/>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
+                  </div>
+                ):filteredTracks.map(track=>{
               const rating=getTrackRating(track.id);
               const reviewCount=approvedReviews.filter(r=>r.trackId===track.id).length;
               return(
@@ -1721,7 +1753,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="px-1.5 py-0.5 rounded-md border text-[8px] font-black uppercase shrink-0" style={getTagStyles(track.category)}>{track.category}</span>
                       {rating>0&&<div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=Math.round(rating)?'text-yellow-400':'text-slate-700'}`}/>)}<span className="text-[8px] text-slate-600 ml-0.5">({reviewCount})</span></div>}
-                      <span className="text-[8px] text-slate-600 font-bold">Listened:: {track.playCount}</span>
+                      <span className="text-orange-500 text-[8px] font-black uppercase">Listened::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1">{track.playCount||0}</span>
+                      <span className="text-slate-700 text-[8px]">|</span>
+                      <span className="text-blue-500 text-[8px] font-black uppercase ml-1">Liked::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1">{track.likeCount||0}</span>
+                      <span className="text-slate-700 text-[8px]">|</span>
+                      <span className="text-purple-500 text-[8px] font-black uppercase ml-1">Reviews::</span><span className="text-white text-[8px] font-black ml-0.5">{reviewCount}</span>
                     </div>
                   </div>
                   {/* Action buttons */}
@@ -1733,6 +1769,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 </div>
               );
             })}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -1792,29 +1830,23 @@ const MusicApp: React.FC<MusicAppProps> = ({
             )}
 
           </div>
-        {/* ── Controls Row ── */}
-        <div style={{flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'10px 16px',background:'rgba(0,0,0,0.6)',borderTop:'1px solid rgba(255,255,255,0.06)',backdropFilter:'blur(12px)'}}>
-          <button onClick={()=>setShowVisualizer(p=>!p)} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid',borderColor:showVisualizer?'#7c3aed':'rgba(255,255,255,0.1)',background:showVisualizer?'rgba(124,58,237,0.2)':'rgba(255,255,255,0.05)',color:showVisualizer?'#a78bfa':'#64748b',cursor:'pointer',transition:'all 0.2s'}} title={showVisualizer?'Show artwork':'Show visualizer'}>
-            <i className={`fa-solid ${showVisualizer?'fa-image':'fa-waveform-lines'} text-xs`}/>
-          </button>
-          <button onClick={handlePlayPrev} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',color:'#94a3b8',cursor:'pointer',transition:'all 0.2s'}}>
-            <i className="fa-solid fa-backward-step text-xs"/>
-          </button>
-          <button onClick={()=>setIsPlaying(p=>!p)} style={{width:42,height:42,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid #7c3aed',background:'#7c3aed',color:'#fff',cursor:'pointer',transition:'all 0.2s',boxShadow:'0 0 20px rgba(124,58,237,0.4)'}}>
-            <i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-sm`}/>
-          </button>
-          <button onClick={handlePlayNext} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',color:'#94a3b8',cursor:'pointer',transition:'all 0.2s'}}>
-            <i className="fa-solid fa-forward-step text-xs"/>
-          </button>
-          <button onClick={handleShuffle} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',color:'#94a3b8',cursor:'pointer',transition:'all 0.2s'}}>
-            <i className="fa-solid fa-shuffle text-xs"/>
-          </button>
-          {currentUser!==MASTER_IDENTITY&&currentTrackId&&(
-            <MusicPlaylistButton currentUser={currentUser} tracks={tracks} currentTrackId={currentTrackId} onSelectTrack={(id)=>{setCurrentTrackId(id);setIsPlaying(true);}} triggerAdd={true}/>
+        {/* ── Track Info Bar ── */}
+        <div style={{flexShrink:0,padding:'10px 24px',background:'rgba(0,0,0,0.75)',borderTop:'1px solid rgba(255,255,255,0.06)',backdropFilter:'blur(12px)'}}>
+          {currentTrack ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-[11px] font-black uppercase tracking-widest text-purple-400 shrink-0">{currentTrack.artist}</p>
+              <span className="text-slate-700 text-[8px]">·</span>
+              <span className="px-1.5 py-0.5 rounded-md border text-[8px] font-black uppercase shrink-0" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span>
+              <span className="text-slate-700 text-[8px]">·</span>
+              <span className="text-orange-500 text-[8px] font-black uppercase">Listened::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1.5">{currentTrack.playCount||0}</span>
+              <span className="text-slate-700 text-[8px] mr-1.5">|</span>
+              <span className="text-blue-500 text-[8px] font-black uppercase">Liked::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1.5">{currentTrack.likeCount||0}</span>
+              <span className="text-slate-700 text-[8px] mr-1.5">|</span>
+              <span className="text-purple-500 text-[8px] font-black uppercase">Reviews::</span><span className="text-white text-[8px] font-black ml-0.5">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span>
+            </div>
+          ) : (
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Select a track to begin</p>
           )}
-          <button onClick={()=>{ const el=document.querySelector('.music-visual-section') as HTMLElement; if(el){ if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); } } }} style={{width:32,height:32,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.05)',color:'#64748b',cursor:'pointer',transition:'all 0.2s',marginLeft:8}} title="Fullscreen">
-            <i className="fa-solid fa-expand text-xs"/>
-          </button>
         </div>
         </section>
       </div>
@@ -1985,6 +2017,17 @@ const App: React.FC = () => {
   });
 
   const [showMusic, setShowMusic] = useState(false);
+  const [showUserPlaylist, setShowUserPlaylist] = useState(false);
+  const [sharedTracks, setSharedTracks] = useState<any[]>(() => {
+    try { return JSON.parse(localStorage.getItem('integral_music_shared_v1') || '[]'); } catch { return []; }
+  });
+  const syncSharedTracks = () => {
+    try { setSharedTracks(JSON.parse(localStorage.getItem('integral_music_shared_v1') || '[]')); } catch {}
+  };
+  useEffect(() => {
+    window.addEventListener('storage', syncSharedTracks);
+    return () => window.removeEventListener('storage', syncSharedTracks);
+  }, []);
   const [showLoginOverlay, setShowLoginOverlay] = useState(false);
   const [loginDefaultTab, setLoginDefaultTab] = useState<'Identify'|'Terminal'|'Restore'>('Identify');
   const [playlists, setPlaylists] = useState<UserPlaylist[]>(()=> getPlaylists());
@@ -2319,7 +2362,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <header className="h-20 flex-shrink-0 border-b border-white/5 bg-black/40 backdrop-blur-xl flex items-center justify-between px-8 z-50">
+      <header className="h-20 flex-shrink-0 border-b border-white/5 bg-black/40 backdrop-blur-xl flex items-center justify-between px-8 z-50 relative">
         <div className="flex items-center gap-4 cursor-pointer" onClick={() => setActiveSecondaryView('none')}>
           <IntegralLogo />
           <div className="flex flex-col">
@@ -2329,6 +2372,7 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+        {currentUser !== MASTER_IDENTITY && (<button onClick={() => setShowUserPlaylist(v => !v)} className={`absolute left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showUserPlaylist ? 'bg-white text-black shadow-lg' : 'border-white/10 bg-white/5 text-slate-400 hover:text-white hover:border-white/20'}`}><i className="fa-solid fa-list text-sm"/><span>{currentUser.replace(/_/g,' ')} Playlist</span></button>)}
         
         <div className="flex gap-4 items-center">
           <div className="flex flex-col items-end relative group">
@@ -2375,16 +2419,7 @@ const App: React.FC = () => {
             </button>
           )}
 
-          {currentUser !== MASTER_IDENTITY && (
-            <button
-              onClick={() => setShowPlaylistPanel(v => !v)}
-              className={`relative h-11 px-4 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showPlaylistPanel ? 'bg-white text-black shadow-lg' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:border-white/20'}`}
-            >
-              <i className="fa-solid fa-list text-sm"></i>
-              <span>My Lists</span>
-              {userPlaylists.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 rounded-full text-[9px] font-black flex items-center justify-center border-2 border-black">{userPlaylists.length}</span>}
-            </button>
-          )}
+
 
           <button 
             onClick={() => {
@@ -2417,7 +2452,7 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex overflow-hidden relative z-10" style={{minHeight:0}}>
         <aside className="w-[490px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 overflow-y-auto custom-scrollbar">
-          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={() => { setShowMusic(true); setIsPlaying(false); }} onMoveToFavPick={() => {}} onWriteReview={(videoId, rating, comment) => { const review = { id: `r-${Date.now()}`, rating: rating||5, text: comment||'', user: currentUser, timestamp: Date.now(), isApproved: false }; setVideos(prev => prev.map(v => v.id === videoId ? { ...v, reviews: [review, ...(v.reviews || [])] } : v)); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} />
+          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={() => { setShowMusic(true); setIsPlaying(false); }} isUserLocked={isUserLocked} onShowUserPlaylist={showUserPlaylist && currentUser !== MASTER_IDENTITY} onHideUserPlaylist={() => setShowUserPlaylist(false)} onMoveToFavPick={() => {}} onWriteReview={(videoId, rating, comment) => { const review = { id: `r-${Date.now()}`, rating: rating||5, text: comment||'', user: currentUser, timestamp: Date.now(), isApproved: false }; setVideos(prev => prev.map(v => v.id === videoId ? { ...v, reviews: [review, ...(v.reviews || [])] } : v)); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} />
         </aside>
 
         <section className="flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
@@ -2613,6 +2648,8 @@ const App: React.FC = () => {
             isUserLocked={isUserLocked}
             onLogout={handleLogout}
             onAdminClick={() => setShowLoginOverlay(true)}
+            showUserPlaylist={showUserPlaylist}
+            onToggleUserPlaylist={() => setShowUserPlaylist(v => !v)}
 
           />
       )}

@@ -18,12 +18,16 @@ interface PlaylistProps {
   onRemoveCategory: (name: string) => void;
   onUpdateCategoryColor: (category: string, color: string) => void;
   onPurgeAll: () => void;
-  activeTab: VideoCategory | 'All' | 'Vault';
-  setActiveTab: (tab: VideoCategory | 'All' | 'Vault') => void;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
   isAuthorized: boolean;
   currentUser?: string;
   onAddToPlaylist?: () => void;
   onOpenMusicApp?: () => void;
+  onShowUserPlaylist?: boolean;
+  onHideUserPlaylist?: () => void;
+  onRemoveTrack?: (id: string) => void;
+  isUserLocked?: boolean;
 }
 
 const COLOR_PALETTE = [
@@ -55,6 +59,10 @@ const Playlist: React.FC<PlaylistProps> = ({
   currentUser = '',
   onAddToPlaylist,
   onOpenMusicApp,
+  onShowUserPlaylist = false,
+  onHideUserPlaylist,
+  onRemoveTrack,
+  isUserLocked = false,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
@@ -106,9 +114,10 @@ const Playlist: React.FC<PlaylistProps> = ({
   };
 
   const filteredVideos = useMemo(() => {
-    let base = videos;
-    if (activeTab === 'Vault') base = videos.filter(v => userFavorites.includes(v.id));
-    else if (activeTab !== 'All') base = videos.filter(v => v.category === activeTab);
+    // Hide user-uploaded videos (addedBy set) from global list — only visible in user's own playlist
+    let base = videos.filter(v => !(v as any).addedBy);
+    if (activeTab === 'Vault') base = base.filter(v => userFavorites.includes(v.id));
+    else if (activeTab !== 'All') base = base.filter(v => v.category === activeTab);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       base = base.filter(v => v.prompt?.toLowerCase().includes(q) || v.category?.toLowerCase().includes(q));
@@ -182,7 +191,7 @@ const Playlist: React.FC<PlaylistProps> = ({
     return (
       <div key={tab.name} className="relative group/tab">
         <button
-          onClick={() => setActiveTab(tab.name as any)}
+          onClick={() => { setActiveTab(tab.name as any); if (onShowUserPlaylist) onHideUserPlaylist?.(); }}
           style={getTabStyles(tab.name)}
           className={`w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center px-1 border relative cursor-pointer`}
         >
@@ -204,19 +213,14 @@ const Playlist: React.FC<PlaylistProps> = ({
     <div className="flex flex-col h-full relative bg-transparent">
       <div className="flex-none pb-4 z-20 px-4 pt-6">
         <div className="flex items-center justify-between mb-4 px-1">
-          {/* Left: title + playlist btn + add btn */}
           <div className="flex items-center gap-3">
             <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
               Library Matrix
             </h3>
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm ? 'bg-blue-500/20 border-blue-500/40 text-blue-300 rotate-45' : 'bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40'}`}
-              title="Add video"
-            >
-              <i className="fa-solid fa-plus text-[9px]"/>
-            </button>
+            {isUserLocked && currentUser && currentUser !== 'INTEGRAL_STREAM' && (
+              <button onClick={() => setShowAddForm(!showAddForm)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm ? 'bg-blue-500/20 border-blue-500/40 text-blue-300 rotate-45' : 'bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40'}`} title="Add video"><i className="fa-solid fa-plus text-[9px]"/></button>
+            )}
           </div>
           {/* Right: VIDEO|MUSIC + shuffle + search + purge */}
           <div className="flex items-center gap-2">
@@ -248,7 +252,7 @@ const Playlist: React.FC<PlaylistProps> = ({
           </div>
         </div>
 
-        {showAddForm && (
+        {showAddForm && isUserLocked && (
           <form onSubmit={handleInlineSubmit} className="animate-fade-in bg-slate-900/90 border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl space-y-4">
             <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Add Video</h4>
             <input autoFocus type="text" placeholder="URL..." value={newUrl} onChange={(e) => setNewUrl(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
@@ -282,7 +286,42 @@ const Playlist: React.FC<PlaylistProps> = ({
         </div>
       </div>
       
-      <div className="flex-1 space-y-1 overflow-y-auto px-4 custom-scrollbar mt-2 pb-10">
+      <div className="flex-1 overflow-y-auto custom-scrollbar mt-2 pb-10">
+        {onShowUserPlaylist ? (
+          <div className="px-4 space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">{currentUser?.replace(/_/g,' ')} Playlist <span className="text-slate-600">· {videos.filter(v=>(v as any).addedBy===currentUser).length} videos</span></p>
+              <button onClick={onHideUserPlaylist} className="text-slate-600 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-xs"/></button>
+            </div>
+            {videos.filter(v => (v as any).addedBy === currentUser).length > 0 ? (
+              <div className="space-y-1">
+                {videos.filter(v => (v as any).addedBy === currentUser).map(v => (
+                  <div key={v.id} className="flex items-center gap-2 py-2 border-b border-white/5 last:border-0">
+                    <div className="w-14 h-9 rounded-lg bg-slate-900 overflow-hidden flex-shrink-0 border border-white/5 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}>
+                      <img src={getThumbnailUrl(v)} className="w-full h-full object-cover" alt=""/>
+                    </div>
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}>
+                      <p className="text-[10px] font-bold text-slate-300 hover:text-white truncate">{v.prompt || v.url}</p>
+                      <div className="flex items-center gap-2 flex-wrap text-[9px] font-black uppercase tracking-widest mt-0.5">
+                        <span className="px-1.5 py-0.5 rounded-md border shrink-0" style={getTagStyles(v.category)}>{v.category}</span>
+                        <span className="text-orange-500">Views::</span><span className="text-white ml-0.5 mr-1">{v.viewCount||0}</span>
+                        <span className="text-slate-700">|</span>
+                        <span className="text-blue-500 ml-1">Likes::</span><span className="text-white ml-0.5">{v.likeCount||0}</span>
+                      </div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); onRemove(v.id); }} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all flex-shrink-0 border border-white/5"><i className="fa-solid fa-xmark text-[11px]"/></button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-700">
+                <i className="fa-solid fa-film text-3xl"/>
+                <p className="text-[9px] font-black uppercase tracking-widest">No videos uploaded yet</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1 px-4">
         {filteredVideos.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
             <i className="fa-solid fa-wind text-3xl text-slate-700 mb-6"></i>
@@ -334,6 +373,8 @@ const Playlist: React.FC<PlaylistProps> = ({
             </div>
           </div>
         ))}
+          </div>
+        )}
       </div>
     </div>
   );
