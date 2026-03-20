@@ -9,6 +9,7 @@ interface PlaylistProps {
   onSelect: (video: VideoItem) => void;
   onRemove: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleLike?: (id: string) => void;
   userFavorites: string[];
   onMoveVideo: (id: string, direction: 'up' | 'down') => void;
   onAddRandom: () => void;
@@ -18,16 +19,17 @@ interface PlaylistProps {
   onRemoveCategory: (name: string) => void;
   onUpdateCategoryColor: (category: string, color: string) => void;
   onPurgeAll: () => void;
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab: VideoCategory | 'All' | 'Vault';
+  setActiveTab: (tab: VideoCategory | 'All' | 'Vault') => void;
   isAuthorized: boolean;
   currentUser?: string;
   onAddToPlaylist?: () => void;
   onOpenMusicApp?: () => void;
   onShowUserPlaylist?: boolean;
   onHideUserPlaylist?: () => void;
-  onRemoveTrack?: (id: string) => void;
   isUserLocked?: boolean;
+  onWriteReview?: (videoId: string, rating: number, comment: string) => void;
+  onRequestIdentify?: () => void;
 }
 
 const COLOR_PALETTE = [
@@ -44,6 +46,7 @@ const Playlist: React.FC<PlaylistProps> = ({
   onSelect, 
   onRemove, 
   onToggleFavorite, 
+  onToggleLike,
   userFavorites,
   onMoveVideo,
   onAddRandom,
@@ -61,8 +64,9 @@ const Playlist: React.FC<PlaylistProps> = ({
   onOpenMusicApp,
   onShowUserPlaylist = false,
   onHideUserPlaylist,
-  onRemoveTrack,
   isUserLocked = false,
+  onWriteReview,
+  onRequestIdentify,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
@@ -114,7 +118,6 @@ const Playlist: React.FC<PlaylistProps> = ({
   };
 
   const filteredVideos = useMemo(() => {
-    // Hide user-uploaded videos (addedBy set) from global list — only visible in user's own playlist
     let base = videos.filter(v => !(v as any).addedBy);
     if (activeTab === 'Vault') base = base.filter(v => userFavorites.includes(v.id));
     else if (activeTab !== 'All') base = base.filter(v => v.category === activeTab);
@@ -213,13 +216,28 @@ const Playlist: React.FC<PlaylistProps> = ({
     <div className="flex flex-col h-full relative bg-transparent">
       <div className="flex-none pb-4 z-20 px-4 pt-6">
         <div className="flex items-center justify-between mb-4 px-1">
+          {/* Left: title + playlist btn + add btn */}
           <div className="flex items-center gap-3">
             <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
               Library Matrix
             </h3>
-            {isUserLocked && currentUser && currentUser !== 'INTEGRAL_STREAM' && (
-              <button onClick={() => setShowAddForm(!showAddForm)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm ? 'bg-blue-500/20 border-blue-500/40 text-blue-300 rotate-45' : 'bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40'}`} title="Add video"><i className="fa-solid fa-plus text-[9px]"/></button>
+            {(isAuthorized || isUserLocked) ? (
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm ? 'bg-blue-500/20 border-blue-500/40 text-blue-300 rotate-45' : 'bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40'}`}
+                title="Add video"
+              >
+                <i className="fa-solid fa-plus text-[9px]"/>
+              </button>
+            ) : (
+              <button
+                onClick={() => onRequestIdentify?.()}
+                className="w-6 h-6 rounded-lg border flex items-center justify-center transition-all bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40"
+                title="Add video"
+              >
+                <i className="fa-solid fa-plus text-[9px]"/>
+              </button>
             )}
           </div>
           {/* Right: VIDEO|MUSIC + shuffle + search + purge */}
@@ -237,9 +255,7 @@ const Playlist: React.FC<PlaylistProps> = ({
                 <i className="fa-solid fa-music" style={{fontSize:8}}></i> MUSIC
               </button>
             </div>
-            <button onClick={onAddRandom} title="Shuffle" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center">
-              <i className="fa-solid fa-shuffle text-[11px]"></i>
-            </button>
+            <button onClick={()=>{if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;}onAddRandom();}} title="Shuffle" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all flex items-center"><i className="fa-solid fa-shuffle text-[11px]"></i></button>
             <div className="relative flex-shrink-0">
               <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]"></i>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="h-7 w-28 pl-7 pr-3 rounded-lg bg-white/5 border border-white/10 text-white text-[10px] font-bold placeholder-slate-600 focus:outline-none focus:border-blue-500/30"/>
@@ -252,8 +268,8 @@ const Playlist: React.FC<PlaylistProps> = ({
           </div>
         </div>
 
-        {showAddForm && isUserLocked && (
-          <form onSubmit={handleInlineSubmit} className="animate-fade-in bg-slate-900/90 border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl space-y-4">
+        {showAddForm && (isAuthorized || isUserLocked) && (
+          <div className="animate-fade-in bg-slate-900/90 border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl space-y-4">
             <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Add Video</h4>
             <input autoFocus type="text" placeholder="URL..." value={newUrl} onChange={(e) => setNewUrl(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
             <input type="text" placeholder="Title..." value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
@@ -264,9 +280,9 @@ const Playlist: React.FC<PlaylistProps> = ({
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={resetForm} className="flex-1 bg-white/5 border border-white/10 text-slate-500 py-3 rounded-xl text-[9px] font-black uppercase">Abort</button>
-              <button type="submit" disabled={!newUrl || !newCat} className="flex-1 py-3 bg-white text-black rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-30">Inject</button>
+              <button type="submit" onClick={handleInlineSubmit} disabled={!newUrl || !newCat} className="flex-1 py-3 bg-white text-black rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-30">Inject</button>
             </div>
-          </form>
+          </div>
         )}
 
         <div className="flex flex-col gap-2">
@@ -288,62 +304,49 @@ const Playlist: React.FC<PlaylistProps> = ({
       
       <div className="flex-1 overflow-y-auto custom-scrollbar mt-2 pb-10">
         {onShowUserPlaylist ? (
-          <div className="px-4 space-y-4 pt-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">{currentUser?.replace(/_/g,' ')} Playlist <span className="text-slate-600">· {videos.filter(v=>(v as any).addedBy===currentUser).length} videos</span></p>
+          <div className="px-4 space-y-2 pt-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">{currentUser?.replace(/_/g,' ')} Playlist <span className="text-slate-600 ml-1">· {videos.filter(v=>(v as any).addedBy===currentUser).length} videos</span></p>
               <button onClick={onHideUserPlaylist} className="text-slate-600 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-xs"/></button>
             </div>
             {videos.filter(v => (v as any).addedBy === currentUser).length > 0 ? (
               <div className="space-y-1">
                 {videos.filter(v => (v as any).addedBy === currentUser).map(v => (
-                  <div key={v.id} className="flex items-center gap-2 py-2 border-b border-white/5 last:border-0">
-                    <div className="w-14 h-9 rounded-lg bg-slate-900 overflow-hidden flex-shrink-0 border border-white/5 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}>
-                      <img src={getThumbnailUrl(v)} className="w-full h-full object-cover" alt=""/>
-                    </div>
+                  <div key={v.id} className="flex items-center gap-2 px-1.5 py-0.5 border-b border-white/5 last:border-0">
+                    <div className="w-24 h-16 rounded-xl bg-slate-900 overflow-hidden flex-shrink-0 border border-white/5 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}><img src={getThumbnailUrl(v)} className="w-full h-full object-cover" alt=""/></div>
                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}>
-                      <p className="text-[10px] font-bold text-slate-300 hover:text-white truncate">{v.prompt || v.url}</p>
-                      <div className="flex items-center gap-2 flex-wrap text-[9px] font-black uppercase tracking-widest mt-0.5">
-                        <span className="px-1.5 py-0.5 rounded-md border shrink-0" style={getTagStyles(v.category)}>{v.category}</span>
-                        <span className="text-orange-500">Views::</span><span className="text-white ml-0.5 mr-1">{v.viewCount||0}</span>
-                        <span className="text-slate-700">|</span>
-                        <span className="text-blue-500 ml-1">Likes::</span><span className="text-white ml-0.5">{v.likeCount||0}</span>
+                      <p className="text-[14px] font-black uppercase tracking-tight text-blue-400 truncate leading-none">{v.category}</p>
+                      <p className="text-[15px] font-bold leading-none truncate text-slate-300">{v.prompt || v.url}</p>
+                      <div className="flex items-center flex-wrap">
+                        <span className="text-orange-500 text-[11px] font-black uppercase">Views::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(v.viewCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Likes::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(v.likeCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{(v.reviews||[]).filter((r:any)=>r.isApproved).length}</span>
                       </div>
                     </div>
-                    <button onClick={e => { e.stopPropagation(); onRemove(v.id); }} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all flex-shrink-0 border border-white/5"><i className="fa-solid fa-xmark text-[11px]"/></button>
+                    <div className="flex flex-col gap-0 flex-shrink-0">
+                      <button onClick={e=>{e.stopPropagation();onToggleLike?.(v.id);}} className={`w-6 h-6 flex items-center justify-center transition-all ${((v as any).likedBy||[]).includes(currentUser)?'text-blue-400':'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((v as any).likedBy||[]).includes(currentUser)?'solid':'regular'} fa-thumbs-up text-[15px]`}/></button>
+                      {(v.reviews||[]).some((r:any)=>r.user===currentUser)
+                        ? <button className="w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[15px]"/></button>
+                        : <button onClick={e=>{e.stopPropagation();onSelect(v);onWriteReview?.(v.id,0,'');}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[15px]"/></button>}
+                      <button onClick={e=>{e.stopPropagation();onToggleFavorite(v.id);}} className={`w-6 h-6 flex items-center justify-center transition-all ${userFavorites.includes(v.id)?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${userFavorites.includes(v.id)?'solid':'regular'} fa-heart text-[15px]`}/></button>
+                      <button onClick={e => { e.stopPropagation(); onRemove(v.id); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[17px]"/></button>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-700">
-                <i className="fa-solid fa-film text-3xl"/>
-                <p className="text-[9px] font-black uppercase tracking-widest">No videos uploaded yet</p>
-              </div>
+              <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-700"><i className="fa-solid fa-film text-3xl"/><p className="text-[9px] font-black uppercase tracking-widest">No videos uploaded yet</p></div>
             )}
           </div>
         ) : (
           <div className="space-y-1 px-4">
-        {filteredVideos.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
-            <i className="fa-solid fa-wind text-3xl text-slate-700 mb-6"></i>
-            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
-          </div>
-        ) : filteredVideos.map((video) => (
-          <div key={video.id} onClick={() => onSelect(video)} className={`group flex items-center gap-3 p-3 rounded-2xl transition-all cursor-pointer border relative animate-fade-in pr-10 ${currentVideo?.id === video.id ? 'bg-white/5 border-white/10 shadow-lg' : 'bg-transparent border-transparent hover:bg-white/5'}`}>
-            <div className="absolute top-0 bottom-0 right-3 flex flex-col items-center justify-center gap-3 z-30 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={(e) => { e.stopPropagation(); handleShare(video); }} className={`transition-all hover:scale-125 ${shareSuccessId === video.id ? 'text-green-500' : 'text-slate-600 hover:text-white'}`} data-tooltip="Share Video">
-                <i className={`fa-solid ${shareSuccessId === video.id ? 'fa-check' : 'fa-link'} text-[11px]`}></i>
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(video.id); }} className={`transition-all hover:scale-125 ${userFavorites.includes(video.id) ? 'text-red-500' : 'text-slate-600 hover:text-white'}`}>
-                <i className={`fa-${userFavorites.includes(video.id) ? 'solid' : 'regular'} fa-heart text-[11px]`}></i>
-              </button>
-              {isAuthorized && (
-                <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="text-slate-600 hover:text-red-500 transition-all hover:scale-125" data-tooltip="Purge Video">
-                  <i className="fa-solid fa-trash-can text-[11px]"></i>
-                </button>
-              )}
-            </div>
-            {confirmingDeleteId === video.id && isAuthorized && (
-              <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-2xl flex items-center justify-between px-6 border border-red-500/20" onClick={(e) => e.stopPropagation()}>
+            {filteredVideos.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
+                <i className="fa-solid fa-wind text-3xl text-slate-700 mb-6"></i>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
+              </div>
+            ) : filteredVideos.map((video) => (
+          <div key={video.id} onClick={() => onSelect(video)} className={`group flex items-center gap-2 px-1.5 py-0.5 rounded-lg transition-all cursor-pointer border relative ${currentVideo?.id === video.id ? 'bg-blue-500/25 border-blue-400/40 shadow-lg shadow-blue-500/10' : 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/25 hover:border-blue-400/40'}`}>
+            {confirmingDeleteId === video.id && (
+              <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex items-center justify-between px-6 border border-red-500/20" onClick={(e) => e.stopPropagation()}>
                 <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Delete Video?</span>
                 <div className="flex gap-2">
                   <button onClick={() => setConfirmingDeleteId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
@@ -351,28 +354,34 @@ const Playlist: React.FC<PlaylistProps> = ({
                 </div>
               </div>
             )}
-            <div className={`w-24 h-14 rounded-xl bg-slate-900 flex-shrink-0 overflow-hidden relative border ${currentVideo?.id === video.id ? 'border-white/20' : 'border-white/5'}`}>
-              <img src={getThumbnailUrl(video)} className="w-full h-full object-cover grayscale-[0.4] group-hover:grayscale-0 transition-all" alt="" />
-              <div className={`absolute inset-0 flex items-center justify-center ${currentVideo?.id === video.id ? 'bg-white/10' : 'bg-transparent'}`}>
-                <i className={`fa-solid fa-play text-white text-[10px] ${currentVideo?.id === video.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}></i>
+            {/* Thumbnail */}
+            <div className={`w-24 h-16 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentVideo?.id === video.id ? 'border-blue-500/40' : 'border-white/5'}`}>
+              <img src={getThumbnailUrl(video)} className="w-full h-full object-cover" alt=""/>
+              {currentVideo?.id === video.id && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <i className="fa-solid fa-play text-white text-[10px]"/>
+                </div>
+              )}
+            </div>
+            {/* Info */}
+            <div className="flex-1 overflow-hidden flex flex-col justify-center gap-0 min-w-0">
+              <p className="text-[14px] font-black uppercase tracking-tight text-blue-400 truncate leading-none">{video.category}</p>
+              <p className="text-[15px] font-bold leading-none truncate text-slate-300">{video.prompt}</p>
+              <div className="flex items-center flex-wrap">
+                <span className="text-orange-500 text-[11px] font-black uppercase">Views::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(video.viewCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Likes::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(video.likeCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{(video.reviews?.filter(r=>r.isApproved)?.length||0)}</span>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden flex flex-col justify-center gap-1.5 pr-2">
-              <p className={`text-[14px] font-bold leading-tight truncate text-slate-400 transition-colors duration-300`}>{video.prompt}</p>
-              <div className="flex items-center gap-3 text-[9px] font-black uppercase tracking-widest">
-                <span className="px-1.5 py-0.5 rounded-md border shrink-0" style={getTagStyles(video.category)}>{video.category}</span>
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-orange-500">Views::</span>
-                  <span className="text-white">{formatCount(video.viewCount)}</span>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-blue-500">Likes::</span>
-                  <span className="text-white">{formatCount(video.likeCount)}</span>
-                </div>
+            {/* Action buttons */}
+            <div className="flex flex-col flex-shrink-0 self-stretch relative w-6">
+              {((video.reviews||[]).some((r:any)=>r.user===currentUser) ? <button className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[11px]"/></button> : <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onWriteReview?.(video.id, 0, ''); }} className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[11px]"/></button>)}
+              <div className="flex flex-col items-center justify-center flex-1 gap-0.5 pt-7 pb-7">
+                <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onToggleLike?.(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${((video as any).likedBy||[]).includes(currentUser) ? 'text-blue-400' : 'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((video as any).likedBy||[]).includes(currentUser) ? 'solid' : 'regular'} fa-thumbs-up text-[11px]`}/></button>
+                <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onToggleFavorite(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${userFavorites.includes(video.id) ? 'text-pink-400' : 'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${userFavorites.includes(video.id) ? 'solid' : 'regular'} fa-heart text-[11px]`}/></button>
               </div>
+              {(isAuthorized||(isUserLocked&&(video as any).addedBy===currentUser)) && <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>}
             </div>
           </div>
-        ))}
+            ))}
           </div>
         )}
       </div>

@@ -44,7 +44,8 @@ interface MusicAppProps {
   currentUser:string; isAuthorized:boolean; onClose:()=>void;
   nodeId?:string; isUserLocked?:boolean;
   pendingReviewsCount?:number; onLogout?:()=>void; onAdminClick?:()=>void;
-  showUserPlaylist?:boolean; onToggleUserPlaylist?:()=>void;
+  showUserPlaylist?:boolean; onToggleUserPlaylist?:()=>void; onOpenUserPlaylist?:()=>void;
+  onPendingReview?:()=>void;
 }
 
 // ─── Shared auth constants (must match APP.tsx) ─────────────────────────────
@@ -94,9 +95,10 @@ const TrackThumbnail = ({artist,title,category,thumbnail='',className='',style={
 
   // If we have a real thumbnail URL and it hasn't failed, show it
   if(thumbnail && !imgFailed) {
+    const src = thumbnail.includes('sndcdn.com') ? `https://wsrv.nl/?url=${encodeURIComponent(thumbnail)}` : thumbnail;
     return (
       <div className={`relative overflow-hidden ${className}`} style={style}>
-        <img src={thumbnail} alt={title} className="w-full h-full object-cover"
+        <img src={src} alt={title} className="w-full h-full object-cover"
           onError={()=>setImgFailed(true)}/>
       </div>
     );
@@ -124,21 +126,6 @@ const TrackThumbnail = ({artist,title,category,thumbnail='',className='',style={
   );
 };
 
-const getThumbnailUrl = (track: MusicTrack): string => {
-  // Return stored thumbnail first (set via oEmbed fetch)
-  if (track.thumbnail) return track.thumbnail;
-  const u = track.url || '';
-  if (u.includes('youtube.com') || u.includes('youtu.be')) {
-    let id = '';
-    if (u.includes('youtu.be/')) id = u.split('youtu.be/')[1]?.split(/[?&/#]/)[0] || '';
-    else if (u.includes('v=')) id = u.split('v=')[1]?.split(/[?&/#]/)[0] || '';
-    else if (u.includes('/embed/')) id = u.split('/embed/')[1]?.split(/[?&/#]/)[0] || '';
-    id = id.trim();
-    if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-  }
-  return '';
-};
-
 const extractYoutubeId=(url:string):string=>{
   if(!url)return'';
   const u=url.replace('music.youtube.com','www.youtube.com');
@@ -148,6 +135,14 @@ const extractYoutubeId=(url:string):string=>{
   if(u.includes('v='))return u.split('v=')[1]?.split(/[&#]/)[0]||'';
   const m=u.match(/[a-zA-Z0-9_-]{11}/);
   return m?m[0]:'';
+};
+
+
+const getThumbnailUrl = (track: MusicTrack): string => {
+  if (track.thumbnail) return track.thumbnail;
+  const id = extractYoutubeId(track.url || '');
+  if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  return '';
 };
 
 const getEmbedUrl = (url:string):{embedUrl:string;type:'youtube'|'soundcloud'|'unknown'} => {
@@ -176,6 +171,7 @@ const IntegralLogo = ({className='w-10 h-10'}:{className?:string}) => (
 );
 
 // ─── Visualizer ────────────────────────────────────────────────────────────────
+// ─── Visualizer helpers ───────────────────────────────────────────────────────
 const VIZ_GROUPS = [
   { group:'Kaleidoscope', modes:['Bloom','Fractal','Storm','Nebula','Crystal'] },
   { group:'Waveform',     modes:['Oscilloscope','Mirror Wave','Ribbon','Lissajous','Spiral Wave'] },
@@ -1189,7 +1185,7 @@ const MusicPlaylistButton: React.FC<{
 
 
 const MusicApp: React.FC<MusicAppProps> = ({
-  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{},
+  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{}, onOpenUserPlaylist=()=>{}, onPendingReview=()=>{},
 }) => {
   // ── Identity: read/write same keys as APP.tsx ─────────────────────────────
   const [currentUser,  setCurrentUser]  = useState<string>(()=> localStorage.getItem(USER_KEY) || currentUserProp);
@@ -1212,13 +1208,16 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const handleIdentify = () => {
     const name = identifyName.trim().toUpperCase().replace(/\s+/g,'_');
     if(!name){ setIdentifyErr('Enter a name'); return; }
+    // Log out admin session first
+    setIsAuthorized(false);
+    localStorage.removeItem(AUTH_KEY);
     setCurrentUser(name);
     setIsUserLocked(true);
     localStorage.setItem(USER_KEY, name);
     localStorage.setItem(USER_LOCKED_KEY,'true');
     if(identifyPic) setUserPic(name, identifyPic);
-    setPicVersion(v => v+1); // force re-read of currentPic/adminPic
-    window.dispatchEvent(new Event('picUpdated')); // notify App component
+    setPicVersion(v => v+1);
+    window.dispatchEvent(new Event('picUpdated'));
     setShowIdentify(false);
     setIdentifyName(''); setIdentifyErr('');
   };
@@ -1250,6 +1249,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   const handleAdminLogin = () => {
     if(adminPass===ADMIN_PASSWORD){
+      // Log out any user session first
+      setCurrentUser(MASTER_IDENTITY);
+      setIsUserLocked(false);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(USER_LOCKED_KEY);
       setIsAuthorized(true);
       localStorage.setItem(AUTH_KEY,'true');
       window.dispatchEvent(new StorageEvent('storage',{key:AUTH_KEY,newValue:'true'}));
@@ -1270,8 +1274,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
   };
   const [genres,     setGenres]     = useState<string[]>(()=>{const s=localStorage.getItem(MUSIC_GENRES_KEY);return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;});
   const [genreColors,setGenreColors]= useState<Record<string,string>>(()=>{const s=localStorage.getItem('integral_music_genre_colors_v1');return s?JSON.parse(s):{...DEFAULT_GENRE_COLORS};});
-  const [tracks,     setTracks]     = useState<MusicTrack[]>(()=>{const s=localStorage.getItem(SHARED_MUSIC_KEY);return s?JSON.parse(s):[];});
+  const [tracks, setTracks] = useState<MusicTrack[]>(()=>{const s=localStorage.getItem(SHARED_MUSIC_KEY);const t=s?JSON.parse(s):[];return t.map((tr:any)=>({...tr,title:(tr.title||'').replace(/,?\s+by\s+.+$/i,'').trim()||tr.title}));});
   const [reviews,    setReviews]    = useState<MusicReview[]>(()=>{const s=localStorage.getItem(MUSIC_REVIEWS_KEY);return s?JSON.parse(s):[];});
+
   const [currentTrackId, setCurrentTrackId] = useState<string|undefined>();
   const [isPlaying,  setIsPlaying]  = useState(false);
   const [activeTab,  setActiveTab]  = useState('All');
@@ -1280,6 +1285,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [showAddGenreForm,setShowAddGenreForm]=useState(false);
   const [showReviewPanel,setShowReviewPanel]=useState(false);
   const [reviewingTrackId,setReviewingTrackId]=useState<string|null>(null);
+  const [showMusicReviews,setShowMusicReviews]=useState(false);
+  const [showMusicVault,setShowMusicVault]=useState(false);
   const [reviewRating,setReviewRating]=useState(5);
   const [reviewComment,setReviewComment]=useState('');
   const [formUrl,    setFormUrl]    = useState('');
@@ -1289,15 +1296,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [newGenre,   setNewGenre]   = useState('');
   const [newGenreColor,setNewGenreColor]=useState(COLOR_PALETTE[0][0]);
   const [confirmDeleteId,setConfirmDeleteId]=useState<string|null>(null);
-  useEffect(()=>{
-    const handler=(e:Event)=>{
-      const id=(e as CustomEvent).detail;
-      setTracks(p=>p.filter(t=>t.id!==id));
-      setConfirmDeleteId(null);
-    };
-    window.addEventListener('integral-remove-track',handler);
-    return()=>window.removeEventListener('integral-remove-track',handler);
-  },[]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [queueTab,   setQueueTab]   = useState<'All'|'Queue'>('All');
   const [showVisualizer, setShowVisualizer] = useState(false);
@@ -1306,11 +1304,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [vizAutoStart, setVizAutoStart] = useState(false);
 
   // ── Firestore: load music on mount ──────────────────────────────────────────
+  const cleanTitle = (t: any) => ({...t, title: (t.title||'').replace(/,?\s+by\s+.+$/i,'').trim()||t.title});
   useEffect(()=>{
     loadMusicFromFirestore().then(remote => {
       if (remote && remote.length > 0) {
-        setTracks(remote);
-        try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(remote)); } catch {}
+        const cleaned = remote.map(cleanTitle);
+        setTracks(cleaned);
+        try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(cleaned)); } catch {}
       }
     });
     loadMusicReviewsFromFirestore().then(remote => {
@@ -1321,8 +1321,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      setTracks(remote);
-      try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(remote)); } catch {}
+      const cleaned = remote.map(cleanTitle);
+      setTracks(cleaned);
+      try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(cleaned)); } catch {}
     });
     return () => { unsubTracks(); };
   }, []);
@@ -1334,7 +1335,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
     try {
       const stripped = tracks.map(t=>({...t, thumbnail: t.thumbnail?.startsWith('data:') ? '' : (t.thumbnail||'')}));
       localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(stripped));
-      window.dispatchEvent(new StorageEvent('storage', { key: SHARED_MUSIC_KEY, newValue: JSON.stringify(stripped) }));
     } catch {}
     return ()=> clearTimeout(t);
   },[tracks]);
@@ -1345,13 +1345,25 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=> clearTimeout(t);
   },[reviews]);
 
+
+  // ── User tracks: completely separate from Firestore ──────────────────────
+  const [userTracks, setUserTracks] = useState<MusicTrack[]>(()=>{
+    try {
+      const user = localStorage.getItem(USER_KEY) || currentUser;
+      return JSON.parse(localStorage.getItem(`integral_user_tracks_${user}`)||'[]');
+    } catch { return []; }
+  });
+  const saveUserTracks = (tracks: MusicTrack[]) => {
+    const user = localStorage.getItem(USER_KEY) || currentUser;
+    try { localStorage.setItem(`integral_user_tracks_${user}`, JSON.stringify(tracks)); } catch {}
+  };
+
   useEffect(()=>{localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));},[genres]);
   useEffect(()=>{localStorage.setItem('integral_music_genre_colors_v1',JSON.stringify(genreColors));},[genreColors]);
 
-  const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||null,[tracks,currentTrackId]);
+  const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||userTracks.find(t=>t.id===currentTrackId)||null,[tracks,userTracks,currentTrackId]);
   const filteredTracks=useMemo(()=>tracks.filter(t=>{
-    // User-uploaded tracks (addedBy set) hidden from global list — only in user's own playlist
-    if(t.addedBy && t.addedBy!==MASTER_IDENTITY) return false;
+    if(t.addedBy) return false;
     if(activeTab==='Vault')return t.isFavorite;
     if(activeTab!=='All'&&t.category!==activeTab)return false;
     return search===''||t.artist.toLowerCase().includes(search.toLowerCase())||t.title.toLowerCase().includes(search.toLowerCase());
@@ -1386,8 +1398,26 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
   const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');};
+  const isAddingTrack = useRef(false);
+  const musicReviewRef = useRef<HTMLDivElement>(null);
+  const musicPlayerRef = useRef<HTMLDivElement>(null);
+  const [isMusicFullscreen, setIsMusicFullscreen] = useState(false);
+  useEffect(() => { const h = () => setIsMusicFullscreen(!!document.fullscreenElement); document.addEventListener('fullscreenchange', h); return () => document.removeEventListener('fullscreenchange', h); }, []);
+  const handleMusicFullscreen = () => {
+    const el = musicPlayerRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement) el.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  };
+  useEffect(()=>{
+    if(showMusicReviews && musicReviewRef.current){
+      setTimeout(()=>musicReviewRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),100);
+    }
+  },[showMusicReviews, reviewingTrackId]);
   const handleAddTrack=async ()=>{
     if(!formUrl.trim())return;
+    if(isAddingTrack.current)return;
+    isAddingTrack.current=true;
     const url=formUrl.trim();
     // Start with whatever the user typed (may be empty)
     let artist=formArtist.trim();
@@ -1424,22 +1454,44 @@ const MusicApp: React.FC<MusicAppProps> = ({
     }
     if(!artist) artist='Unknown Artist';
     if(!title) title='Unknown Title';
-    const tk:MusicTrack={id:`m-${Date.now()}`,artist,title,url,thumbnail,category:formCategory,addedBy:currentUser,timestamp:Date.now(),playCount:0,likeCount:0};
-    setTracks(p=>[tk,...p]);setFormUrl('');setFormArtist('');setFormTitle('');setShowAddForm(false);setCurrentTrackId(tk.id);setIsPlaying(true);
+    // Clean up SoundCloud titles like "Song Name, by Artist" → "Song Name"
+    title = title.replace(/,?\s+by\s+.+$/i, '').trim();
+    const isUserTrack = currentUser !== MASTER_IDENTITY;
+    const tk:MusicTrack={id:`m-${Date.now()}`,artist,title,url,thumbnail,category:formCategory,...(isUserTrack?{addedBy:currentUser}:{}),timestamp:Date.now(),playCount:0,likeCount:0};
+    if(isUserTrack){
+      const newUserTracks = [tk, ...userTracks];
+      setUserTracks(newUserTracks);
+      saveUserTracks(newUserTracks);
+      onOpenUserPlaylist();
+    }
+    else setTracks(p=>[tk,...p]);
+    setFormUrl('');setFormArtist('');setFormTitle('');setShowAddForm(false);setCurrentTrackId(tk.id);setIsPlaying(true);
+    isAddingTrack.current=false;
   };
-  const handleRemoveTrack=(id:string)=>{setTracks(p=>p.filter(t=>t.id!==id));if(currentTrackId===id){setCurrentTrackId(undefined);setIsPlaying(false);}setConfirmDeleteId(null);};
+  const handleRemoveTrack=(id:string)=>{
+    const newUserTracks = userTracks.filter(t=>t.id!==id);
+    setUserTracks(newUserTracks);
+    saveUserTracks(newUserTracks);
+    setTracks(p=>p.filter(t=>t.id!==id));
+    if(currentTrackId===id){setCurrentTrackId(undefined);setIsPlaying(false);}
+    setConfirmDeleteId(null);
+  };
 
   // thumbnails rendered via <TrackThumbnail> component directly
-  const handleToggleFavorite=(id:string,e:React.MouseEvent)=>{e.stopPropagation();setTracks(p=>p.map(t=>t.id===id?{...t,isFavorite:!t.isFavorite}:t));};
+  const handleToggleFavorite=(id:string,e:React.MouseEvent)=>{e.stopPropagation();setTracks(p=>p.map(t=>t.id===id?{...t,isFavorite:!t.isFavorite}:t));const track=tracks.find(t=>t.id===id);if(!track?.isFavorite)setShowMusicVault(true);};
   const handleSelectTrack=(track:MusicTrack)=>{
     if(currentTrackId===track.id){ setIsPlaying(p=>!p); }
-    else{ setCurrentTrackId(track.id); setIsPlaying(true); setTracks(p=>p.map(t=>t.id===track.id?{...t,playCount:t.playCount+1}:t)); }
+    else{
+      setCurrentTrackId(track.id); setIsPlaying(true);
+      if(track.addedBy) setUserTracks(p=>p.map(t=>t.id===track.id?{...t,playCount:t.playCount+1}:t));
+      else setTracks(p=>p.map(t=>t.id===track.id?{...t,playCount:t.playCount+1}:t));
+    }
   };
   // Crossfade on track change
   useEffect(()=>{
     if(!currentTrackId) return;
     setCrossfading(true);
-    const t = setTimeout(()=>setCrossfading(false), 600);
+    const t = setTimeout(()=>setCrossfading(false), 800);
     return ()=>clearTimeout(t);
   },[currentTrackId]);
 
@@ -1462,23 +1514,40 @@ const MusicApp: React.FC<MusicAppProps> = ({
     }
   },[isPlaying, currentTrackId, type]);
 
-  const handleLikeTrack=(id:string,e:React.MouseEvent)=>{ e.stopPropagation(); setTracks(p=>p.map(t=>t.id===id?{...t,likeCount:(t.likeCount||0)+1}:t)); };
+  const handleLikeTrack=(id:string,e:React.MouseEvent)=>{
+    e.stopPropagation();
+    setTracks(p=>p.map(t=>{
+      if(t.id!==id) return t;
+      const likedBy:string[] = (t as any).likedBy || [];
+      if(likedBy.includes(currentUser)) return t; // already liked
+      return {...t,likeCount:(t.likeCount||0)+1,likedBy:[...likedBy,currentUser]};
+    }));
+  };
   const handlePlayNext=()=>{if(!filteredTracks.length)return;const idx=filteredTracks.findIndex(t=>t.id===currentTrackId);const next=filteredTracks[(idx+1)%filteredTracks.length];setCurrentTrackId(next.id);setIsPlaying(true);};
   const handlePlayPrev=()=>{if(!filteredTracks.length)return;const idx=filteredTracks.findIndex(t=>t.id===currentTrackId);const prev=filteredTracks[(idx-1+filteredTracks.length)%filteredTracks.length];setCurrentTrackId(prev.id);setIsPlaying(true);};
   const handleShuffle=()=>{if(!filteredTracks.length)return;const r=filteredTracks[Math.floor(Math.random()*filteredTracks.length)];setCurrentTrackId(r.id);setIsPlaying(true);};
   const handleSubmitReview=()=>{
     if(!reviewingTrackId)return;
-    const rev:MusicReview={id:`rev-${Date.now()}`,trackId:reviewingTrackId,user:currentUser,rating:reviewRating,comment:reviewComment.trim(),timestamp:Date.now(),approved:false};
-    setReviews(p=>[...p,rev]);setReviewComment('');setReviewRating(5);setReviewingTrackId(null);
+    const alreadyReviewed = reviews.some(r=>r.trackId===reviewingTrackId&&r.user===currentUser);
+    if(alreadyReviewed){ setReviewingTrackId(null); return; }
+    const rev:MusicReview={id:`rev-${Date.now()}`,trackId:reviewingTrackId,user:currentUser,rating:reviewRating,comment:reviewComment.trim(),timestamp:Date.now(),approved:isAuthorized};
+    setReviews(p=>{
+      const updated=[...p,rev];
+      // Save immediately so refresh doesn't lose it
+      try { localStorage.setItem(MUSIC_REVIEWS_KEY, JSON.stringify(updated)); } catch {}
+      saveMusicReviewsToFirestore(updated);
+      return updated;
+    });
+    setReviewComment('');setReviewRating(5);setReviewingTrackId(null);if(!isAuthorized){onPendingReview();}
   };
-  const handleApproveReview=(id:string)=>setReviews(p=>p.map(r=>r.id===id?{...r,approved:true}:r));
+  const handleApproveReview=(id:string)=>setReviews(p=>p.map(r=>r.id===id?{...r,approved:isAuthorized}:r));
   const handleDeleteReview=(id:string)=>setReviews(p=>p.filter(r=>r.id!==id));
 
   const renderTab=(tab:{name:string})=>{
     const del=isAuthorized&&!['All','Vault'].includes(tab.name);
     return(
       <div key={tab.name} className="relative group/tab">
-        <button onClick={()=>{setActiveTab(tab.name);if(showUserPlaylist)onToggleUserPlaylist();}} style={getTabStyles(tab.name)}
+        <button onClick={()=>setActiveTab(tab.name)} style={getTabStyles(tab.name)}
           className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center px-1 border cursor-pointer">
           <span className="truncate w-full text-center px-1">{tab.name}</span>
         </button>
@@ -1513,7 +1582,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
         <div className="flex gap-3 items-center">
 
           {/* Identify button */}
-          <button onClick={()=>{ if(isUserLocked){handleIdentifyLogout();}else{setShowIdentify(true);setIdentifyName('');setIdentifyErr('');setIdentifyPic(getUserPic(currentUser));} }} className="px-4 h-11 rounded-xl border flex items-center gap-3 bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition-all">
+          <button onClick={()=>{ setShowIdentify(true); setIdentifyName(isUserLocked?currentUser.replace(/_/g,' '):''); setIdentifyErr(''); setIdentifyPic(getUserPic(currentUser)); }} className="px-4 h-11 rounded-xl border flex items-center gap-3 bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition-all">
             <div className="flex flex-col items-end">
               <span className="text-[7px] font-black uppercase tracking-widest opacity-60">{isUserLocked?'My Archive':'Identify'}</span>
               <span className="text-[10px] font-black uppercase tracking-widest">{currentUser.replace(/_/g,' ')}</span>
@@ -1569,27 +1638,10 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 </div>
                 <StarRating value={rev.rating} size="text-xs"/>
                 {isAuthorized&&!rev.approved&&<button onClick={()=>handleApproveReview(rev.id)} className="px-3 py-1 rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 text-[9px] font-black uppercase hover:bg-green-600/30 transition-all">Approve</button>}
-                {isAuthorized&&<button onClick={()=>handleDeleteReview(rev.id)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-red-600/10 border border-red-500/20 text-red-500 hover:bg-red-600/20 transition-all"><i className="fa-solid fa-xmark text-xs"/></button>}
+                {isAuthorized&&<button onClick={()=>handleDeleteReview(rev.id)} className="w-7 h-7 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all flex-shrink-0"><i className="fa-solid fa-xmark text-[10px]"/></button>}
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* ── Write review modal ── */}
-      {reviewingTrackId&&(
-        <div className="fixed inset-0 z-[400] bg-black/80 backdrop-blur-sm flex items-center justify-center" onClick={()=>setReviewingTrackId(null)}>
-          <div className="bg-slate-950 border border-white/10 rounded-2xl p-6 w-96 shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-purple-400 mb-4">Rate & Review</h3>
-            {tracks.find(t=>t.id===reviewingTrackId) && <p className="text-sm font-bold text-white mb-3">{tracks.find(t=>t.id===reviewingTrackId)!.artist} — {tracks.find(t=>t.id===reviewingTrackId)!.title}</p>}
-            <div className="mb-4"><StarRating value={reviewRating} onChange={setReviewRating} size="text-xl"/></div>
-            <textarea value={reviewComment} onChange={e=>setReviewComment(e.target.value)} placeholder="Write your review..." rows={3}
-              className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-purple-500/30 resize-none mb-4"/>
-            <div className="flex gap-2 justify-end">
-              <button onClick={()=>setReviewingTrackId(null)} className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-black uppercase hover:text-white transition-all">Cancel</button>
-              <button onClick={handleSubmitReview} className="px-4 py-2 rounded-xl bg-purple-600 text-white text-[10px] font-black uppercase hover:bg-purple-500 transition-all">Submit</button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1605,9 +1657,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Music Archive
                 </h3>
-                {isUserLocked&&currentUser!==MASTER_IDENTITY&&(
-                  <button onClick={()=>setShowAddForm(p=>!p)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`} title="Add track"><i className="fa-solid fa-plus text-[9px]"/></button>
-                )}
+                {(isAuthorized || (isUserLocked&&currentUser!==MASTER_IDENTITY))&&(<button onClick={()=>setShowAddForm(p=>!p)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`} title="Add track"><i className="fa-solid fa-plus text-[9px]"/></button>)}
               </div>
               {/* Right: toggle + shuffle + search */}
               <div className="flex items-center gap-2">
@@ -1686,50 +1736,59 @@ const MusicApp: React.FC<MusicAppProps> = ({
           </div>
 
           {/* Track list */}
-          <div className="flex-1 overflow-y-auto px-4 custom-scrollbar pb-10">
+          <div className="flex-1 overflow-y-auto px-4 custom-scrollbar pb-10 space-y-1">
             {showUserPlaylist?(
-              <div className="space-y-1 pt-2">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">{currentUser.replace(/_/g,' ')} Playlist <span className="text-slate-600">· {tracks.filter(t=>t.addedBy===currentUser).length} tracks</span></p>
+              <>
+                <div className="flex items-center justify-between py-2 px-1">
+                  <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">{currentUser.replace(/_/g,' ')} · {userTracks.length} tracks</p>
                   <button onClick={onToggleUserPlaylist} className="text-slate-600 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-xs"/></button>
                 </div>
-                {tracks.filter(t=>t.addedBy===currentUser).length===0?(
-                  <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-700"><i className="fa-solid fa-music text-3xl"/><p className="text-[9px] font-black uppercase tracking-widest">No tracks uploaded yet</p></div>
-                ):tracks.filter(t=>t.addedBy===currentUser).map(track=>(
-                <div key={track.id} onClick={()=>handleSelectTrack(track)} className={`flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer border relative ${currentTrackId===track.id?'bg-white/15 border-white/20 shadow-lg':'bg-transparent border-transparent hover:bg-white/5'}`}>
-                  <div className={`w-20 h-14 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
-                    <TrackThumbnail artist={track.artist} title={track.title} category={track.category} thumbnail={track.thumbnail||''} style={{width:'100%',height:'100%'}}/>
-                    {currentTrackId===track.id&&(<div className="absolute inset-0 bg-black/50 flex items-center justify-center"><i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-sm`}/></div>)}
+                {userTracks.length===0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-700">
+                    <i className="fa-solid fa-music text-3xl"/>
+                    <p className="text-[9px] font-black uppercase tracking-widest">No tracks added yet</p>
                   </div>
-                  <div className="flex-1 overflow-hidden flex flex-col justify-center gap-1 min-w-0">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-purple-400 truncate">{track.artist}</p>
-                    <p className="text-[13px] font-bold leading-tight truncate text-slate-300">{track.title}</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-1.5 py-0.5 rounded-md border text-[8px] font-black uppercase shrink-0" style={getTagStyles(track.category)}>{track.category}</span>
-                      <span className="text-orange-500 text-[8px] font-black uppercase">Listened::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1">{track.playCount||0}</span>
-                      <span className="text-slate-700 text-[8px]">|</span>
-                      <span className="text-blue-500 text-[8px] font-black uppercase ml-1">Liked::</span><span className="text-white text-[8px] font-black ml-0.5">{track.likeCount||0}</span>
+                ) : userTracks.map(track=>{
+                  const reviewCount=approvedReviews.filter(r=>r.trackId===track.id).length;
+                  return(
+                    <div key={track.id} onClick={()=>handleSelectTrack(track)} className={`flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer border relative ${currentTrackId===track.id?'bg-white/15 border-white/20':'bg-transparent border-transparent hover:bg-white/5'}`}>
+                      <div className={`w-24 h-16 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
+                        <TrackThumbnail artist={track.artist} title={track.title} category={track.category} thumbnail={getThumbnailUrl(track)} style={{width:'100%',height:'100%'}}/>
+                        {currentTrackId===track.id&&<div className="absolute inset-0 bg-black/50 flex items-center justify-center"><i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-sm`}/></div>}
+                      </div>
+                      <div className="flex-1 overflow-hidden flex flex-col justify-center gap-0 min-w-0">
+                        <p className="text-[14px] font-black uppercase tracking-tight text-purple-400 truncate leading-none">{track.artist}</p>
+                        <p className="text-[15px] font-bold leading-none truncate text-slate-300">{track.title}</p>
+                        <div className="flex items-center flex-wrap">
+                          <span className="text-orange-500 text-[11px] font-black uppercase">Listened::</span><span className="text-white text-[11px] font-black ml-0.5">{track.playCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Liked::</span><span className="text-white text-[11px] font-black ml-0.5">{track.likeCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{reviewCount}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-0 flex-shrink-0">
+                        <button onClick={e=>{e.stopPropagation();handleLikeTrack(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${((track as any).likedBy||[]).includes(currentUser)?'text-blue-400':'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((track as any).likedBy||[]).includes(currentUser)?'solid':'regular'} fa-thumbs-up text-[15px]`}/></button>
+                        {reviews.some(r=>r.trackId===track.id&&r.user===currentUser)
+                          ? <button className="w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[15px]"/></button>
+                          : <button onClick={e=>{e.stopPropagation();handleSelectTrack(track);setReviewingTrackId(track.id);setShowMusicReviews(true);}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[15px]"/></button>}
+                        <button onClick={e=>{e.stopPropagation();handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[15px]`}/></button>
+                        <button onClick={e=>{e.stopPropagation();handleRemoveTrack(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
+                      </div>
                     </div>
-                  </div>
-                  <button onClick={e=>{e.stopPropagation();handleRemoveTrack(track.id);}} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all flex-shrink-0 border border-white/5"><i className="fa-solid fa-xmark text-[11px]"/></button>
-                </div>
-                ))}
-              </div>
+                  );
+                })}
+              </>
             ):(
-              <div className="space-y-1">
-                {filteredTracks.length===0?(
-                  <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
-                    <i className="fa-solid fa-music text-3xl text-slate-700 mb-6"/>
-                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
-                  </div>
-                ):filteredTracks.map(track=>{
+            <>{filteredTracks.length===0?(
+              <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
+                <i className="fa-solid fa-music text-3xl text-slate-700 mb-6"/>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
+              </div>
+            ):filteredTracks.map(track=>{
               const rating=getTrackRating(track.id);
               const reviewCount=approvedReviews.filter(r=>r.trackId===track.id).length;
               return(
                 <div key={track.id} onClick={()=>handleSelectTrack(track)}
-                  className={`group flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer border relative ${currentTrackId===track.id?'bg-white/15 border-white/20 shadow-lg':'bg-transparent border-transparent hover:bg-white/5'}`}>
+                  className={`group flex items-center gap-2 px-1.5 py-0.5 rounded-lg transition-all cursor-pointer border relative ${currentTrackId===track.id?'bg-purple-500/25 border-purple-400/40 shadow-lg shadow-purple-500/10':'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/25 hover:border-purple-400/40'}`}>
                   {confirmDeleteId===track.id&&(
-                    <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-2xl flex items-center justify-between px-6 border border-red-500/20" onClick={e=>e.stopPropagation()}>
+                    <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex items-center justify-between px-6 border border-red-500/20" onClick={e=>e.stopPropagation()}>
                       <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Delete Track?</span>
                       <div className="flex gap-2">
                         <button onClick={()=>setConfirmDeleteId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
@@ -1738,45 +1797,43 @@ const MusicApp: React.FC<MusicAppProps> = ({
                     </div>
                   )}
                   {/* Thumbnail */}
-                  <div className={`w-20 h-14 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
+                  <div className={`w-24 h-16 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
                     <TrackThumbnail artist={track.artist} title={track.title} category={track.category} thumbnail={track.thumbnail||''} style={{width:'100%',height:'100%'}}/>
                     {currentTrackId===track.id&&(
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-sm`}/>
+                        <i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-[10px]`}/>
                       </div>
                     )}
                   </div>
                   {/* Info */}
-                  <div className="flex-1 overflow-hidden flex flex-col justify-center gap-1 min-w-0">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-purple-400 truncate">{track.artist}</p>
-                    <p className="text-[13px] font-bold leading-tight truncate text-slate-300">{track.title}</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-1.5 py-0.5 rounded-md border text-[8px] font-black uppercase shrink-0" style={getTagStyles(track.category)}>{track.category}</span>
-                      {rating>0&&<div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=Math.round(rating)?'text-yellow-400':'text-slate-700'}`}/>)}<span className="text-[8px] text-slate-600 ml-0.5">({reviewCount})</span></div>}
-                      <span className="text-orange-500 text-[8px] font-black uppercase">Listened::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1">{track.playCount||0}</span>
-                      <span className="text-slate-700 text-[8px]">|</span>
-                      <span className="text-blue-500 text-[8px] font-black uppercase ml-1">Liked::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1">{track.likeCount||0}</span>
-                      <span className="text-slate-700 text-[8px]">|</span>
-                      <span className="text-purple-500 text-[8px] font-black uppercase ml-1">Reviews::</span><span className="text-white text-[8px] font-black ml-0.5">{reviewCount}</span>
+                  <div className="flex-1 overflow-hidden flex flex-col justify-center gap-0 min-w-0">
+                    <p className="text-[14px] font-black uppercase tracking-tight text-purple-400 truncate leading-none">{track.artist}</p>
+                    <p className="text-[15px] font-bold leading-none truncate text-slate-300">{track.title}</p>
+                    <div className="flex items-center flex-wrap">
+                      <span className="text-orange-500 text-[11px] font-black uppercase">Listened::</span><span className="text-white text-[11px] font-black ml-0.5">{track.playCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Liked::</span><span className="text-white text-[11px] font-black ml-0.5">{track.likeCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{reviewCount}</span>
                     </div>
                   </div>
                   {/* Action buttons */}
-                  <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                    <button onClick={e=>handleToggleFavorite(track.id,e)} className={`w-6 h-6 flex items-center justify-center rounded-lg transition-all ${track.isFavorite?'text-pink-400 bg-pink-500/10':'text-slate-600 hover:text-pink-400'}`}><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-xs`}/></button>
-                    <button onClick={e=>{e.stopPropagation();setReviewingTrackId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-600 hover:text-yellow-400 transition-all"><i className="fa-regular fa-star text-xs"/></button>
-                    {isAuthorized&&<button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 transition-all"><i className="fa-solid fa-xmark text-xs"/></button>}
+                  <div className="flex flex-col flex-shrink-0 self-stretch relative w-6">
+                    {(reviews.some(r=>r.trackId===track.id&&r.user===currentUser)
+                      ? <button className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[11px]"/></button>
+                      : <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){setShowIdentify(true);return;}handleSelectTrack(track);setReviewingTrackId(track.id);setShowMusicReviews(true);}} className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[11px]"/></button>)}
+                    <div className="flex flex-col items-center justify-center flex-1 gap-0.5 pt-7 pb-7">
+                      <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){setShowIdentify(true);return;}handleLikeTrack(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${((track as any).likedBy||[]).includes(currentUser)?'text-blue-400':'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((track as any).likedBy||[]).includes(currentUser)?'solid':'regular'} fa-thumbs-up text-[11px]`}/></button>
+                      <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){setShowIdentify(true);return;}handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[11px]`}/></button>
+                    </div>
+                    {(isAuthorized||(isUserLocked&&track.addedBy===currentUser))&&<button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>}
                   </div>
                 </div>
               );
             })}
-              </div>
+            </>
             )}
           </div>
         </aside>
 
         {/* ── Full-screen visual area ── */}
-        <section className='music-visual-section' style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',background:'#1a0035',minWidth:0,minHeight:0,opacity:crossfading?0:1,transition:'opacity 0.6s ease'}}>
-          {/* Audio iframe — always mounted when track exists, only remounts on track change */}
+        <section className="music-visual-section flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar" style={{opacity:crossfading?0:1,transform:crossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
           {currentTrack&&(
             <div className="absolute opacity-0 pointer-events-none w-0 h-0">
               {type==='soundcloud'
@@ -1787,67 +1844,163 @@ const MusicApp: React.FC<MusicAppProps> = ({
               }
             </div>
           )}
-
-          {/* Always-mounted visual area — avoids remount/resize issues */}
-          <div style={{flex:1,position:'relative',overflow:'hidden',minHeight:0}}>
-
-            {/* Idle/paused background — shown when not playing */}
-            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'radial-gradient(ellipse at 50% 50%,#1a0035 0%,#0a001a 60%,#000 100%)',opacity:(currentTrack&&isPlaying)?0:1,transition:'opacity 0.4s ease',pointerEvents:(currentTrack&&isPlaying)?'none':'auto'}}>
-              {currentTrack?(
-                <TrackThumbnail artist={currentTrack.artist} title={currentTrack.title} category={currentTrack.category} thumbnail={currentTrack.thumbnail||''} className="relative z-10 rounded-2xl shadow-2xl border border-white/10" style={{width:'50%',height:'45%',maxWidth:320,maxHeight:200,opacity:0.7}}/>
-              ):(
-                <div className="flex items-end justify-center gap-[3px] h-40 w-1/2">
-                  {Array.from({length:36}).map((_,i)=>(
-                    <div key={i} style={{flex:1,borderRadius:'2px 2px 0 0',height:`${15+Math.abs(Math.sin(i*.6))*65+(i%4)*8}%`,background:`hsl(${265+i*3},70%,55%)`}}/>
-                  ))}
+          <div className="w-full flex flex-col pt-8 gap-0">
+            <div className="flex items-center justify-between px-8 mb-6">
+              <h2 className="text-purple-500 font-black uppercase text-[10px] tracking-[0.4em] flex items-center gap-3"><span className="w-1 h-4 bg-purple-500 rounded-full"></span>{currentTrack?'Current Music Stream':'Select Track'}</h2>
+            </div>
+            <div className="px-8 w-full">
+              <div ref={musicPlayerRef} className="w-full max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto">
+                {/* Idle/paused state */}
+                <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'radial-gradient(ellipse at 50% 50%,#1a0035 0%,#0a001a 60%,#000 100%)',opacity:(currentTrack&&isPlaying)?0:1,transition:'opacity 0.4s ease',pointerEvents:(currentTrack&&isPlaying)?'none':'auto'}}>
+                  {currentTrack?(<TrackThumbnail artist={currentTrack.artist} title={currentTrack.title} category={currentTrack.category} thumbnail={getThumbnailUrl(currentTrack)} className="relative z-10 rounded-2xl shadow-2xl border border-white/10" style={{width:'50%',height:'45%',maxWidth:320,maxHeight:200,opacity:0.7}}/>):(<div className="flex items-end justify-center gap-[3px] h-40 w-1/2">{Array.from({length:36}).map((_,i)=>(<div key={i} style={{flex:1,borderRadius:'2px 2px 0 0',height:`${15+Math.abs(Math.sin(i*.6))*65+(i%4)*8}%`,background:`hsl(${265+i*3},70%,55%)`}}/>))}</div>)}
+                  <i className="fa-solid fa-music" style={{fontSize:36,color:'#a855f7',opacity:0.5}}/>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack?'Paused — Click Play':'Select a Track to Begin'}</p>
+                  {currentTrack&&(<button onClick={()=>setIsPlaying(true)} className="mt-2 px-6 py-2 rounded-xl bg-purple-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-purple-500 transition-all shadow-lg shadow-purple-500/30"><i className="fa-solid fa-play mr-2"/>Play</button>)}
                 </div>
-              )}
-              <i className="fa-solid fa-music" style={{fontSize:36,color:'#a855f7',opacity:0.5}}/>
-              <p className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack?'Paused — Click Play':'Select a Track to Begin'}</p>
-              {currentTrack&&(
-                <button onClick={()=>setIsPlaying(true)} className="mt-2 px-6 py-2 rounded-xl bg-purple-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-purple-500 transition-all shadow-lg shadow-purple-500/30">
-                  <i className="fa-solid fa-play mr-2"/>Play
-                </button>
-              )}
+                {/* Thumbnail while playing */}
+                {currentTrack&&(<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'radial-gradient(ellipse at 50% 40%,#0d001a 0%,#000 80%)',opacity:(isPlaying&&!showVisualizer)?1:0,transition:'opacity 0.4s ease',pointerEvents:'none'}}><img src={getThumbnailUrl(currentTrack)} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.25,filter:'blur(40px)',transform:'scale(1.1)'}}/><img src={getThumbnailUrl(currentTrack)} alt={currentTrack.title} style={{position:'relative',zIndex:1,width:'100%',height:'100%',objectFit:'contain'}}/></div>)}
+                {/* Visualizer */}
+                <div style={{position:'absolute',inset:0,zIndex:10,opacity:showVisualizer?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}}>
+                  <VisualizerCanvas onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} isPlaying={isPlaying}/>
+                </div>
+                {/* Open visualizer button */}
+                {(currentTrack&&isPlaying&&!showVisualizer)&&(<VisualizerPickerOnly onActivate={(m)=>{setVizInitialMode(m??0);setShowVisualizer(true);}}/>)}
+              </div>
+            </div>
+            <div className="w-full mt-6 px-8">
+              <div className="bg-white/5 border border-white/5 rounded-3xl flex flex-wrap items-center px-8 py-4 w-full gap-3">
+                {currentTrack?(<><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){setShowIdentify(true);return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){setShowIdentify(true);return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{currentUser.replace(/_/g,' ')}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
+              </div>
             </div>
 
-            {/* Artwork — shown when playing and not in viz mode */}
-            {currentTrack&&(
-              <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'radial-gradient(ellipse at 50% 40%,#0d001a 0%,#000 80%)',opacity:(isPlaying&&!showVisualizer)?1:0,transition:'opacity 0.4s ease',pointerEvents:'none'}}>
-                <img src={currentTrack.thumbnail} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.25,filter:'blur(40px)',transform:'scale(1.1)'}}/>
-                <img src={currentTrack.thumbnail} alt={currentTrack.title} style={{position:'relative',zIndex:1,width:'100%',height:'100%',objectFit:'contain'}}/>
+            {/* ── Music Vault (inline) ── */}
+            {showMusicVault && (
+              <div className="w-full px-8 mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-pink-400 flex items-center gap-2"><i className="fa-solid fa-heart"/>{currentUser.replace(/_/g,' ')}'s Music Vault</p>
+                  <button onClick={()=>setShowMusicVault(false)} className="text-slate-600 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-xs"/></button>
+                </div>
+                {tracks.filter(t=>t.isFavorite).length===0 ? (
+                  <p className="text-[9px] text-slate-600 font-black uppercase tracking-widest text-center py-4">No favorites yet — click ❤️ to add</p>
+                ) : (
+                  <div className="space-y-1">
+                    {tracks.filter(t=>t.isFavorite).map(t=>(
+                      <div key={t.id} onClick={()=>handleSelectTrack(t)} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all hover:bg-white/5 ${currentTrackId===t.id?'bg-white/10':''}`}>
+                        <div className="w-10 h-8 rounded-md overflow-hidden flex-shrink-0 border border-white/5">
+                          <TrackThumbnail artist={t.artist} title={t.title} category={t.category} thumbnail={getThumbnailUrl(t)} style={{width:'100%',height:'100%'}}/>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-bold text-slate-300 truncate leading-none">{t.title}</p>
+                          <p className="text-[11px] font-black uppercase text-purple-400 truncate leading-none">{t.artist}</p>
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();handleToggleFavorite(t.id,e);}} className="text-pink-400 hover:text-slate-500 transition-colors"><i className="fa-solid fa-heart text-[11px]"/></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Visualizer — always mounted, shown/hidden via opacity */}
-            <div style={{position:'absolute',inset:0,zIndex:10,opacity:showVisualizer?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}}>
-              <VisualizerCanvas onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} autoStart={vizAutoStart} isPlaying={isPlaying}/>
-            </div>
-
-            {/* Viz mode picker — shown when playing and not in viz mode */}
-            {(currentTrack&&isPlaying&&!showVisualizer)&&(
-              <VisualizerPickerOnly onActivate={(m)=>{if(m===-1){setVizAutoStart(true);setShowVisualizer(true);}else{setVizInitialMode(m??0);setVizAutoStart(false);setShowVisualizer(true);}}}/>
+            {/* ── Write review form (inline) ── */}
+            {currentTrack && showMusicReviews && (
+              <div className="w-full px-8 mt-3" ref={musicReviewRef}>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-0.5 w-fit">
+                    <button onClick={()=>setReviewingTrackId(null)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${reviewingTrackId!==currentTrack.id?'bg-purple-600 text-white shadow':'text-slate-400 hover:text-white'}`}>Read</button>
+                    {!reviews.some(r=>r.trackId===currentTrack.id&&r.user===currentUser) && (
+                      <button onClick={()=>setReviewingTrackId(currentTrack.id)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${reviewingTrackId===currentTrack.id?'bg-purple-600 text-white shadow':'text-slate-400 hover:text-white'}`}>Review</button>
+                    )}
+                  </div>
+                  {reviews.some(r=>r.trackId===currentTrack.id&&r.user===currentUser) && (
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Already reviewed</span>
+                  )}
+                </div>
+              </div>
             )}
 
+            {reviewingTrackId===currentTrack?.id && showMusicReviews && (
+              <div className="w-full px-8 mt-3" ref={el=>el?.scrollIntoView({behavior:'smooth',block:'nearest'})}>
+                <div className="bg-white/5 border border-purple-500/20 rounded-2xl px-6 py-4 space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-purple-400">Write a Review</p>
+                  <StarRating value={reviewRating} onChange={setReviewRating} size="text-xl"/>
+                  <textarea autoFocus value={reviewComment} onChange={e=>setReviewComment(e.target.value)} placeholder="Write your review..." rows={3}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-purple-500/30 resize-none"/>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={()=>setReviewingTrackId(null)} className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-black uppercase hover:text-white transition-all">Cancel</button>
+                    <button onClick={handleSubmitReview} className="px-4 py-2 rounded-xl bg-purple-600 text-white text-[10px] font-black uppercase hover:bg-purple-500 transition-all">Submit</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Approved Reviews ── */}
+            {currentTrack && showMusicReviews && reviewingTrackId!==currentTrack.id && (
+              <div className="w-full px-8 mt-4">
+                {/* User's own pending review */}
+                {!isAuthorized && reviews.filter(r=>r.trackId===currentTrack.id&&r.user===currentUser&&!r.approved).map(r=>(
+                  <div key={r.id} className="bg-orange-500/10 border border-orange-500/20 rounded-2xl px-6 py-4 flex gap-4 mb-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-orange-600/20 border border-orange-500/30 flex items-center justify-center">
+                      <i className="fa-solid fa-user text-orange-400 text-[10px]"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{currentUser?.replace(/_/g,' ')}</span>
+                        <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=r.rating?'text-yellow-400':'text-slate-700'}`}/>)}</div>
+                        <span className="text-[8px] text-orange-500 font-black uppercase">⏳ Pending</span>
+                      </div>
+                      {r.comment&&<p className="text-[12px] text-slate-300 leading-relaxed">{r.comment}</p>}
+                    </div>
+                  </div>
+                ))}
+                {approvedReviews.filter(r=>r.trackId===currentTrack.id).length===0 ? (
+                  <p className="text-[9px] text-slate-600 font-black uppercase tracking-widest text-center py-4">No reviews yet — be the first</p>
+                ) : (
+                <div className="space-y-2">
+                  {approvedReviews.filter(r=>r.trackId===currentTrack.id).map(rev=>(
+                    <div key={rev.id} className="bg-white/5 border border-white/5 rounded-2xl px-6 py-4 flex gap-4">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center">
+                        <i className="fa-solid fa-user text-purple-400 text-[10px]"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">{rev.user.replace(/_/g,' ')}</span>
+                          <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=rev.rating?'text-yellow-400':'text-slate-700'}`}/>)}</div>
+                          <span className="text-[8px] text-slate-600">{new Date(rev.timestamp).toLocaleDateString()}</span>
+                          {isAuthorized&&<button onClick={()=>setReviews(p=>p.filter(r=>r.id!==rev.id))} className="ml-auto w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all flex-shrink-0"><i className="fa-solid fa-xmark text-[9px]"/></button>}
+                        </div>
+                        {rev.comment&&<p className="text-[12px] text-slate-300 leading-relaxed">{rev.comment}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Pending reviews (admin only) ── */}
+            {isAuthorized && currentTrack && showMusicReviews && reviews.filter(r=>r.trackId===currentTrack.id&&!r.approved).length>0 && (
+              <div className="w-full px-8 mt-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-orange-400 mb-2 px-1">Pending Approval</p>
+                <div className="space-y-2">
+                  {reviews.filter(r=>r.trackId===currentTrack.id&&!r.approved).map(rev=>(
+                    <div key={rev.id} className="bg-orange-500/5 border border-orange-500/20 rounded-2xl px-6 py-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{rev.user.replace(/_/g,' ')}</span>
+                        <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=rev.rating?'text-yellow-400':'text-slate-700'}`}/>)}</div>
+                      </div>
+                      {rev.comment&&<p className="text-[12px] text-slate-300 leading-relaxed mb-2">{rev.comment}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={()=>setReviews(p=>p.map(r=>r.id===rev.id?{...r,approved:isAuthorized}:r))} className="px-3 py-1 bg-green-600 text-white rounded-lg text-[8px] font-black uppercase hover:bg-green-500 transition-all">Approve</button>
+                        <button onClick={()=>setReviews(p=>p.filter(r=>r.id!==rev.id))} className="px-3 py-1 bg-red-600/20 border border-red-500/30 text-red-400 rounded-lg text-[8px] font-black uppercase hover:bg-red-600/40 transition-all">Reject</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pb-20"/>
           </div>
-        {/* ── Track Info Bar ── */}
-        <div style={{flexShrink:0,padding:'10px 24px',background:'rgba(0,0,0,0.75)',borderTop:'1px solid rgba(255,255,255,0.06)',backdropFilter:'blur(12px)'}}>
-          {currentTrack ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-[11px] font-black uppercase tracking-widest text-purple-400 shrink-0">{currentTrack.artist}</p>
-              <span className="text-slate-700 text-[8px]">·</span>
-              <span className="px-1.5 py-0.5 rounded-md border text-[8px] font-black uppercase shrink-0" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span>
-              <span className="text-slate-700 text-[8px]">·</span>
-              <span className="text-orange-500 text-[8px] font-black uppercase">Listened::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1.5">{currentTrack.playCount||0}</span>
-              <span className="text-slate-700 text-[8px] mr-1.5">|</span>
-              <span className="text-blue-500 text-[8px] font-black uppercase">Liked::</span><span className="text-white text-[8px] font-black ml-0.5 mr-1.5">{currentTrack.likeCount||0}</span>
-              <span className="text-slate-700 text-[8px] mr-1.5">|</span>
-              <span className="text-purple-500 text-[8px] font-black uppercase">Reviews::</span><span className="text-white text-[8px] font-black ml-0.5">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span>
-            </div>
-          ) : (
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">Select a track to begin</p>
-          )}
-        </div>
         </section>
       </div>
 
@@ -1988,6 +2141,16 @@ const DEFAULT_CAT_COLORS: Record<string, string> = {
   'Environment': '#22c55e', 
   'Other': '#94a3b8'
 };
+const StarRatingWidget=({value,onChange,size='text-sm'}:{value:number;onChange?:(v:number)=>void;size?:string})=>(
+  <div className="flex items-center gap-0.5">
+    {[1,2,3,4,5].map(s=>(
+      <button key={s} onClick={()=>onChange?.(s)} className={`${onChange?'cursor-pointer hover:scale-125':'cursor-default'} transition-transform`}>
+        <i className={`fa-${s<=Math.round(value)?'solid':'regular'} fa-star ${size} ${s<=Math.round(value)?'text-yellow-400':'text-slate-700'}`}/>
+      </button>
+    ))}
+  </div>
+);
+
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(() => {
     return localStorage.getItem(AUTH_KEY) === 'true';
@@ -2018,16 +2181,10 @@ const App: React.FC = () => {
 
   const [showMusic, setShowMusic] = useState(false);
   const [showUserPlaylist, setShowUserPlaylist] = useState(false);
-  const [sharedTracks, setSharedTracks] = useState<any[]>(() => {
-    try { return JSON.parse(localStorage.getItem('integral_music_shared_v1') || '[]'); } catch { return []; }
-  });
-  const syncSharedTracks = () => {
-    try { setSharedTracks(JSON.parse(localStorage.getItem('integral_music_shared_v1') || '[]')); } catch {}
+  const openMusicWithPlaylist = () => {
+    setShowMusic(true);
+    setIsPlaying(false);
   };
-  useEffect(() => {
-    window.addEventListener('storage', syncSharedTracks);
-    return () => window.removeEventListener('storage', syncSharedTracks);
-  }, []);
   const [showLoginOverlay, setShowLoginOverlay] = useState(false);
   const [loginDefaultTab, setLoginDefaultTab] = useState<'Identify'|'Terminal'|'Restore'>('Identify');
   const [playlists, setPlaylists] = useState<UserPlaylist[]>(()=> getPlaylists());
@@ -2038,18 +2195,53 @@ const App: React.FC = () => {
   const activePlaylist = useMemo(() => playlists.find(p => p.id === activePlaylistId) || null, [playlists, activePlaylistId]);
   // pic state: just a version counter to force re-renders when pic changes
   const [picVersion, setPicVersion] = useState(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const currentProfilePic = useMemo(() => getUserPic(currentUser), [currentUser, picVersion]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const [currentProfilePic, setCurrentProfilePic] = useState(() => getUserPic(currentUser));
   const adminPic = useMemo(() => getUserPic(ADMIN_USER), [picVersion]);
+  useEffect(() => { setCurrentProfilePic(getUserPic(currentUser)); }, [currentUser, picVersion]);
   const [activeSecondaryView, setActiveSecondaryView] = useState<'none' | 'reviews' | 'vault' | 'moderation'>('none');
   const [reviewInitialTab, setReviewInitialTab] = useState<'Read' | 'Write'>('Read');
+  const [showVideoReviews, setShowVideoReviews] = useState(false);
+  const videoReviewRef = useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(showVideoReviews && videoReviewRef.current){
+      setTimeout(()=>videoReviewRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),100);
+    }
+  },[showVideoReviews, activeSecondaryView]);
+  const [reviewingVideoId, setReviewingVideoId] = useState<string|null>(null);
+  const [videoReviewRating, setVideoReviewRating] = useState(5);
+  const [videoReviewComment, setVideoReviewComment] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoCrossfading, setVideoCrossfading] = useState(false);
   const [playlistTab, setPlaylistTab] = useState<VideoCategory | 'All' | 'Vault'>('All');
   const [isSyncingLive, setIsSyncingLive] = useState(false);
   const [isCheckingSync, setIsCheckingSync] = useState(false);
   const [cloudVersion, setCloudVersion] = useState<number>(LIBRARY_VERSION);
+  const [showPendingToast, setShowPendingToast] = useState(false);
+  const [showVisitorToast, setShowVisitorToast] = useState(false);
+
+  // Morphing text for visitor button
+  const VISITOR_TEXTS = ['Pick a Username', 'Log In'];
+  const [visitorTextIdx, setVisitorTextIdx] = useState(0);
+  const [visitorTextFade, setVisitorTextFade] = useState(true);
+  useEffect(() => {
+    if (isUserLocked || isAuthorized) return;
+    const interval = setInterval(() => {
+      setVisitorTextFade(false);
+      setTimeout(() => {
+        setVisitorTextIdx(i => (i + 1) % VISITOR_TEXTS.length);
+        setVisitorTextFade(true);
+      }, 400);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [isUserLocked, isAuthorized]);
+
+  // Show visitor prompt on first load if not logged in
+  useEffect(() => {
+    if (!isUserLocked && !isAuthorized) {
+      setShowVisitorToast(true);
+      setTimeout(() => setShowVisitorToast(false), 5000);
+    }
+  }, []);
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
@@ -2071,15 +2263,19 @@ const App: React.FC = () => {
 
 
 
-  const handleIdentify = (name: string, remember: boolean) => {
+  const handleIdentify = (name: string, remember: boolean, pic?: string) => {
     const cleanName = name.trim().toUpperCase().replace(/\s+/g, '_');
     if (cleanName) {
+      // Log out admin session first
+      setIsAuthorized(false);
+      localStorage.removeItem(AUTH_KEY);
       setCurrentUser(cleanName);
       setIsUserLocked(true);
       if (remember) {
         localStorage.setItem(USER_KEY, cleanName);
         localStorage.setItem(USER_LOCKED_KEY, 'true');
       }
+      if (pic) { setUserPic(cleanName, pic); setPicVersion(v => v+1); window.dispatchEvent(new Event('picUpdated')); }
       setShowLoginOverlay(false);
       return true;
     }
@@ -2091,6 +2287,7 @@ const App: React.FC = () => {
     setIsUserLocked(false);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(USER_LOCKED_KEY);
+    setShowUserPlaylist(false);
     setActiveSecondaryView('none');
     setShowLoginOverlay(true);
   };
@@ -2116,6 +2313,11 @@ const App: React.FC = () => {
 
   const handleAdminLogin = (pass: string, remember: boolean) => {
     if (pass === ADMIN_PASSWORD) {
+      // Log out any user session first
+      setCurrentUser(MASTER_IDENTITY);
+      setIsUserLocked(false);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(USER_LOCKED_KEY);
       setIsAuthorized(true);
       localStorage.setItem(AUTH_KEY, 'true');
       window.dispatchEvent(new StorageEvent('storage', { key: AUTH_KEY, newValue: 'true' }));
@@ -2177,22 +2379,25 @@ const App: React.FC = () => {
   });
 
   const [videos, setVideos] = useState<VideoItem[]>(() => {
-    // Start with localStorage (fast, works offline/incognito as fallback)
     const currentSource = getSampleLibrary();
     const savedDataStr = localStorage.getItem(DATA_KEY);
     const savedVersion = localStorage.getItem(VERSION_KEY);
     const isOldVersion = !savedVersion || parseInt(savedVersion, 10) < LIBRARY_VERSION;
+    const deletedIds = new Set(JSON.parse(localStorage.getItem(`integral_deleted_videos_v${LIBRARY_VERSION}`) || '[]'));
     if (!savedDataStr || isOldVersion) return currentSource;
     try {
       const baseData: VideoItem[] = JSON.parse(savedDataStr);
       const currentSourceMap = new Map(currentSource.map(v => [v.url, v]));
-      const syncedData = baseData.map(lv => {
-        const sv = currentSourceMap.get(lv.url);
-        if (sv) return { ...sv, id: lv.id, viewCount: lv.viewCount, likeCount: lv.likeCount, dislikeCount: lv.dislikeCount, reviews: lv.reviews || [] };
-        return lv;
-      });
+      const deletedRevIds = new Set(JSON.parse(localStorage.getItem(`integral_deleted_reviews_v${LIBRARY_VERSION}`) || '[]'));
+      const syncedData = baseData
+        .filter(lv => !deletedIds.has(lv.id))
+        .map(lv => { lv = {...lv, reviews: (lv.reviews||[]).filter((r:any)=>!deletedRevIds.has(r.id))};
+          const sv = currentSourceMap.get(lv.url);
+          if (sv) return { ...sv, id: lv.id, viewCount: lv.viewCount, likeCount: lv.likeCount, dislikeCount: lv.dislikeCount, reviews: lv.reviews || [] };
+          return lv;
+        });
       const localUrls = new Set(syncedData.map(v => v.url));
-      const newItems = currentSource.filter(v => !localUrls.has(v.url));
+      const newItems = currentSource.filter(v => !localUrls.has(v.url) && !deletedIds.has(v.id));
       return [...newItems, ...syncedData];
     } catch (e) { return currentSource; }
   });
@@ -2200,23 +2405,52 @@ const App: React.FC = () => {
   const [currentVideoId, setCurrentVideoId] = useState<string | undefined>(videos[0]?.id);
 
   // ── Firestore: load videos on mount & subscribe to live changes ───────────
+  const videoFirestoreUpdating = useRef(false);
+  const lastVideoSaveTime = useRef(0);
+  const DELETED_IDS_KEY = `integral_deleted_videos_v${LIBRARY_VERSION}`;
+  const DELETED_REVIEWS_KEY = `integral_deleted_reviews_v${LIBRARY_VERSION}`;
+  const deletedVideoIds = useRef<Set<string>>(new Set(
+    JSON.parse(localStorage.getItem(DELETED_IDS_KEY) || '[]')
+  ));
+  const deletedReviewIds = useRef<Set<string>>(new Set(
+    JSON.parse(localStorage.getItem(DELETED_REVIEWS_KEY) || '[]')
+  ));
+  const unsubVideos = useRef<()=>void>(()=>{});
+
   useEffect(() => {
     loadVideosFromFirestore().then(remote => {
       if (remote && remote.length > 0) {
-        setVideos(remote as VideoItem[]);
-        try { localStorage.setItem(DATA_KEY, JSON.stringify(remote)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
+        videoFirestoreUpdating.current = true;
+        const filtered = (remote as VideoItem[])
+          .filter(v => !deletedVideoIds.current.has(v.id))
+          .map(v => ({...v, reviews: (v.reviews||[]).filter((r:any)=>!deletedReviewIds.current.has(r.id))}));
+        setVideos(filtered);
+        try { localStorage.setItem(DATA_KEY, JSON.stringify(filtered)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
       }
     });
-    const unsub = subscribeToVideos(remote => {
-      setVideos(remote as VideoItem[]);
-      try { localStorage.setItem(DATA_KEY, JSON.stringify(remote)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
+    unsubVideos.current = subscribeToVideos(remote => {
+      // Always filter out locally deleted videos
+      const filtered = (remote as VideoItem[])
+        .filter(v => !deletedVideoIds.current.has(v.id))
+        .map(v => ({...v, reviews: (v.reviews||[]).filter((r:any)=>!deletedReviewIds.current.has(r.id))}));
+      if(Date.now() - lastVideoSaveTime.current < 5000) {
+        try { localStorage.setItem(DATA_KEY, JSON.stringify(filtered)); } catch {}
+        return;
+      }
+      videoFirestoreUpdating.current = true;
+      setVideos(filtered);
+      try { localStorage.setItem(DATA_KEY, JSON.stringify(filtered)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
     });
-    return () => unsub();
+    return () => unsubVideos.current();
   }, []);
 
   // ── Firestore: save videos on change (debounced 1.5s) ────────────────────
   useEffect(() => {
-    const t = setTimeout(() => { saveVideosToFirestore(videos); }, 1500);
+    if(videoFirestoreUpdating.current){ videoFirestoreUpdating.current = false; return; }
+    const t = setTimeout(() => {
+      lastVideoSaveTime.current = Date.now();
+      saveVideosToFirestore(videos);
+    }, 1500);
     // Keep localStorage in sync as offline fallback
     try {
       localStorage.setItem(DATA_KEY, JSON.stringify(videos));
@@ -2243,9 +2477,18 @@ const App: React.FC = () => {
   }, [videos]);
 
   const handleRemoveVideo = useCallback((id: string) => {
+    deletedVideoIds.current.add(id);
+    // Persist deleted IDs so they survive page refresh
+    try { localStorage.setItem(DELETED_IDS_KEY, JSON.stringify([...deletedVideoIds.current])); } catch {}
+    // Unsubscribe so Firestore can't push the video back
+    unsubVideos.current();
+    unsubVideos.current = () => {};
     setVideos(prev => {
       const filtered = prev.filter(v => v.id !== id);
       if (currentVideoId === id) setCurrentVideoId(filtered.length > 0 ? filtered[0].id : undefined);
+      try { localStorage.setItem(DATA_KEY, JSON.stringify(filtered)); } catch {}
+      lastVideoSaveTime.current = Date.now();
+      saveVideosToFirestore(filtered);
       return filtered;
     });
     setUserFavMap(prev => {
@@ -2256,10 +2499,14 @@ const App: React.FC = () => {
   }, [currentVideoId]);
 
   const handleManualAdd = useCallback((u: string, p: string, c: VideoCategory) => {
-    const nv: VideoItem = { id: `m-${Date.now()}`, url: u, prompt: p, category: c, isFavorite: false, viewCount: 0, likeCount: 0, dislikeCount: 0, status: 'ready', timestamp: Date.now(), rating: 0, isLiked: false, isDisliked: false, reviews: [] };
+    const isUserVideo = isUserLocked && currentUser !== MASTER_IDENTITY;
+    const ytId = u.includes('youtu.be/') ? u.split('youtu.be/')[1]?.split(/[?&/#]/)[0] : u.includes('v=') ? u.split('v=')[1]?.split(/[?&/#]/)[0] : '';
+    const thumbnail = ytId ? `https://i.ytimg.com/vi/${ytId.trim()}/hqdefault.jpg` : '';
+    const nv: any = { id: `m-${Date.now()}`, url: u, prompt: p, category: c, thumbnail, isFavorite: false, viewCount: 0, likeCount: 0, dislikeCount: 0, status: 'ready', timestamp: Date.now(), rating: 0, isLiked: false, isDisliked: false, reviews: [], ...(isUserVideo ? { addedBy: currentUser } : {}) };
     setVideos(prev => [nv, ...prev]);
     if (!currentVideoId) setCurrentVideoId(nv.id);
-  }, [currentVideoId]);
+    if (isUserVideo) setShowUserPlaylist(true);
+  }, [currentVideoId, currentUser, isUserLocked]);
 
   const handlePurgeAll = useCallback(() => { 
     setVideos([]); setCurrentVideoId(undefined); setIsPlaying(false); setActiveSecondaryView('none'); 
@@ -2273,6 +2520,8 @@ const App: React.FC = () => {
       const updatedFavs = isAlreadyFav 
         ? userFavs.filter(fid => fid !== id) 
         : [...userFavs, id];
+      // Switch to Vault tab when adding to favorites
+      if (!isAlreadyFav) setPlaylistTab('Vault');
       return { 
         ...prev, 
         [currentUser]: updatedFavs 
@@ -2287,10 +2536,40 @@ const App: React.FC = () => {
     else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen();
   }, []);
 
-  const handleToggleLike = useCallback((id: string) => { setVideos(prev => prev.map(v => v.id === id ? { ...v, isLiked: !v.isLiked, likeCount: v.isLiked ? v.likeCount - 1 : v.likeCount + 1, isDisliked: v.isLiked ? v.isDisliked : false, dislikeCount: (v.isLiked || !v.isDisliked) ? v.dislikeCount : v.dislikeCount - 1 } : v)); }, []);
+  const handleToggleLike = useCallback((id: string) => {
+    setVideos(prev => prev.map(v => {
+      if(v.id !== id) return v;
+      const likedBy:string[] = (v as any).likedBy || [];
+      if(likedBy.includes(currentUser)) return v; // already liked
+      return {...v, likeCount: v.likeCount + 1, isLiked: true, likedBy: [...likedBy, currentUser]};
+    }));
+  }, [currentUser]);
   const handleToggleDislike = useCallback((id: string) => { setVideos(prev => prev.map(v => v.id === id ? { ...v, isDisliked: !v.isDisliked, dislikeCount: v.isDisliked ? v.dislikeCount - 1 : v.dislikeCount + 1, isLiked: v.isDisliked ? v.isLiked : false, likeCount: (v.isDisliked || !v.isLiked) ? v.likeCount : v.likeCount - 1 } : v)); }, []);
-  const handleIncrementView = useCallback((id: string) => { setVideos(prev => prev.map(v => v.id === id ? { ...v, viewCount: v.viewCount + 1 } : v)); }, []);
-  const handleSelectVideo = useCallback((v: VideoItem) => { if (currentVideoId === v.id) { setIsPlaying(prev => !prev); } else { setCurrentVideoId(v.id); } }, [currentVideoId]);
+  const handleIncrementView = useCallback((id: string) => {
+    setVideos(prev => {
+      const updated = prev.map(v => v.id === id ? { ...v, viewCount: v.viewCount + 1 } : v);
+      try { localStorage.setItem(DATA_KEY, JSON.stringify(updated)); } catch {}
+      lastVideoSaveTime.current = Date.now();
+      saveVideosToFirestore(updated);
+      return updated;
+    });
+  }, []);
+  const handleSelectVideo = useCallback((v: VideoItem) => { if (currentVideoId === v.id) { setIsPlaying(prev => !prev); } else { setCurrentVideoId(v.id); setIsPlaying(true); } }, [currentVideoId]);
+
+  // ── Increment view after 5 seconds of watching ───────────────────────────
+  const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewedVideoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
+    if (!currentVideoId || !isPlaying) return;
+    // Already counted this video this session
+    if (viewedVideoRef.current === currentVideoId) return;
+    viewTimerRef.current = setTimeout(() => {
+      viewedVideoRef.current = currentVideoId;
+      handleIncrementView(currentVideoId);
+    }, 5000);
+    return () => { if (viewTimerRef.current) clearTimeout(viewTimerRef.current); };
+  }, [currentVideoId, isPlaying]);
 
   // Auto-advance video with crossfade when YouTube ends
   useEffect(()=>{
@@ -2342,6 +2621,25 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen bg-transparent text-slate-100 flex flex-col font-sans relative selection:bg-blue-500/30 overflow-hidden">
+      {/* Pending Review Toast */}
+      {showPendingToast && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+          <div className="bg-black/90 border border-red-500/40 rounded-2xl px-10 py-6 flex flex-col items-center gap-2 shadow-2xl animate-pulse">
+            <span className="text-4xl">⏳</span>
+            <p className="text-[22px] font-black uppercase tracking-widest text-red-500 text-center">Your review is pending approval</p>
+          </div>
+        </div>
+      )}
+      {/* Visitor Username Toast */}
+      {showVisitorToast && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+          <div className="bg-black/90 border border-blue-500/40 rounded-2xl px-10 py-6 flex flex-col items-center gap-3 shadow-2xl">
+            <span className="text-4xl">👤</span>
+            <p className="text-[22px] font-black uppercase tracking-widest text-blue-400 text-center">Please choose a username</p>
+            <p className="text-[12px] text-slate-500 uppercase tracking-widest text-center">to like, review & save your favourites</p>
+          </div>
+        </div>
+      )}
       {/* Background Watermark Logo */}
       <div className="fixed bottom-[-10%] right-[-10%] w-[40vw] h-[40vw] opacity-[0.03] pointer-events-none z-0 rotate-12 select-none">
         <IntegralLogo className="w-full h-full" />
@@ -2364,7 +2662,7 @@ const App: React.FC = () => {
 
       <header className="h-20 flex-shrink-0 border-b border-white/5 bg-black/40 backdrop-blur-xl flex items-center justify-between px-8 z-50 relative">
         <div className="flex items-center gap-4 cursor-pointer" onClick={() => setActiveSecondaryView('none')}>
-          <IntegralLogo />
+          <div className="hover:rotate-[360deg] transition-transform duration-700"><IntegralLogo /></div>
           <div className="flex flex-col">
             <h1 className="font-black text-xl uppercase tracking-tighter leading-none text-blue-600">IntegralStream</h1>
             <div className="flex items-center gap-2 mt-1">
@@ -2372,37 +2670,33 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
-        {currentUser !== MASTER_IDENTITY && (<button onClick={() => setShowUserPlaylist(v => !v)} className={`absolute left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showUserPlaylist ? 'bg-white text-black shadow-lg' : 'border-white/10 bg-white/5 text-slate-400 hover:text-white hover:border-white/20'}`}><i className="fa-solid fa-list text-sm"/><span>{currentUser.replace(/_/g,' ')} Playlist</span></button>)}
+        {currentUser!==MASTER_IDENTITY&&isUserLocked&&(<button onClick={()=>setShowUserPlaylist(v=>!v)} className={`absolute left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showUserPlaylist?'bg-white text-black shadow-lg':'border-white/10 bg-white/5 text-slate-400 hover:text-white hover:border-white/20'}`}><i className="fa-solid fa-list text-sm"/><span>{currentUser.replace(/_/g,' ')} Playlist</span></button>)}
         
         <div className="flex gap-4 items-center">
           <div className="flex flex-col items-end relative group">
             <div 
               onClick={() => { if(isUserLocked){ handleLogout(); } else { setLoginDefaultTab('Identify'); setShowLoginOverlay(true); } }}
-              className={`px-4 h-11 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center gap-3 transition-all cursor-pointer hover:bg-blue-600/20`}
+              className={`px-4 h-11 rounded-xl border flex items-center gap-3 transition-all cursor-pointer relative overflow-hidden ${isUserLocked?'bg-blue-600/10 border-blue-500/20 hover:bg-red-500/10 hover:border-red-500/30':' border-purple-500/40 bg-gradient-to-r from-purple-600/20 to-blue-600/20 hover:from-purple-500/40 hover:to-blue-500/40 hover:border-purple-400/60 hover:shadow-lg hover:shadow-purple-500/20'}`}
             >
+              {!isUserLocked && <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-white/5 to-blue-500/0 animate-pulse pointer-events-none"/>}
               <div className="flex flex-col items-end">
                 <div className="flex items-center gap-1.5">
                    {isUserLocked ? (
-                     <i className="fa-solid fa-lock text-[7px] text-blue-500/60 group-hover:hidden"></i>
-                   ) : currentUser === MASTER_IDENTITY ? (
-                     <i className="fa-solid fa-code text-[7px] text-blue-500"></i>
+                     <><i className="fa-solid fa-lock text-[7px] text-blue-500/60 group-hover:hidden"></i><i className="fa-solid fa-arrow-right-from-bracket text-[7px] text-red-400 hidden group-hover:inline-block"></i></>
                    ) : (
-                     <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse"></div>
+                     <i className="fa-solid fa-user-plus text-[7px] text-purple-400 animate-pulse"></i>
                    )}
-                   {isUserLocked && <i className="fa-solid fa-arrow-right-from-bracket text-[7px] text-white hidden group-hover:inline-block"></i>}
-                   <span className="text-[7px] font-black text-blue-500/60 uppercase tracking-widest group-hover:hidden transition-colors">
-                    {isUserLocked ? 'Verified' : 'Identify'}
-                   </span>
-                   <span className="text-[7px] font-black text-red-400 uppercase tracking-widest hidden group-hover:inline transition-colors">
-                    {isUserLocked ? 'Log Off' : 'Click to Identify'}
-                   </span>
+                   <span className="text-[7px] font-black uppercase tracking-widest group-hover:hidden">{isUserLocked?<span className="text-blue-500/60">Verified</span>:<span className="text-purple-400/80">Join Now</span>}</span>
+                   {isUserLocked&&<span className="text-[7px] font-black text-red-400 uppercase tracking-widest hidden group-hover:inline-block">Log Out</span>}
                 </div>
-                <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest group-hover:text-blue-400 transition-colors">{currentUser === MASTER_IDENTITY ? 'Add Username' : currentUser.replace(/_/g,' ')}</span>
+                <span className={`text-[10px] font-black uppercase tracking-widest transition-all duration-400 ${isUserLocked?'text-blue-500 group-hover:text-red-400':'text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400'}`} style={!isUserLocked?{opacity:visitorTextFade?1:0,transform:visitorTextFade?'translateY(0)':'translateY(4px)',transition:'opacity 0.4s ease, transform 0.4s ease'}:{}}>{isUserLocked ? currentUser.replace(/_/g,' ') : VISITOR_TEXTS[visitorTextIdx]}</span>
               </div>
-              <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-500/40 flex-shrink-0 flex items-center justify-center bg-blue-600/20">
+              <div className="w-8 h-8 rounded-full overflow-hidden border border-purple-500/40 flex-shrink-0 flex items-center justify-center bg-purple-600/10">
                 {currentProfilePic
                   ? <img src={currentProfilePic} className="w-full h-full object-cover" alt="profile"/>
-                  : <i className={`fa-solid ${isUserLocked ? 'fa-user-lock' : 'fa-id-badge'} text-blue-500 text-xs`}></i>
+                  : isUserLocked
+                    ? <i className="fa-solid fa-user-lock text-blue-500 text-xs"/>
+                    : <div className="hover:rotate-[360deg] transition-transform duration-700"><IntegralLogo className="w-6 h-6"/></div>
                 }
               </div>
             </div>
@@ -2452,7 +2746,7 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex overflow-hidden relative z-10" style={{minHeight:0}}>
         <aside className="w-[490px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 overflow-y-auto custom-scrollbar">
-          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={() => { setShowMusic(true); setIsPlaying(false); }} isUserLocked={isUserLocked} onShowUserPlaylist={showUserPlaylist && currentUser !== MASTER_IDENTITY} onHideUserPlaylist={() => setShowUserPlaylist(false)} onMoveToFavPick={() => {}} onWriteReview={(videoId, rating, comment) => { const review = { id: `r-${Date.now()}`, rating: rating||5, text: comment||'', user: currentUser, timestamp: Date.now(), isApproved: false }; setVideos(prev => prev.map(v => v.id === videoId ? { ...v, reviews: [review, ...(v.reviews || [])] } : v)); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} />
+          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const v = getSurpriseVideo(); setVideos(p => [v, ...p]); setCurrentVideoId(v.id); }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={openMusicWithPlaylist} isUserLocked={isUserLocked} onShowUserPlaylist={showUserPlaylist&&currentUser!==MASTER_IDENTITY} onHideUserPlaylist={()=>setShowUserPlaylist(false)} onMoveToFavPick={() => {}} onToggleLike={handleToggleLike} onWriteReview={(videoId) => { setCurrentVideoId(videoId); setVideoReviewRating(5); setVideoReviewComment(''); setShowVideoReviews(true); setActiveSecondaryView('reviews'); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} onRequestIdentify={()=>setShowIdentify(true)}/>
         </aside>
 
         <section className="flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
@@ -2463,7 +2757,7 @@ const App: React.FC = () => {
             <div className="px-8 w-full" ref={playerContainerRef}>
                <div className="w-full max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto">
                 {currentVideo ? (
-                  <div style={{opacity:videoCrossfading?0:1,transition:'opacity 0.6s ease'}}>
+                  <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
                   <VideoPlayer key={currentVideo.id} video={currentVideo} isFavorite={currentUserFavorites.includes(currentVideo.id)} isPlaying={isPlaying} onPlayStateChange={setIsPlaying} onToggleLike={() => handleToggleLike(currentVideo.id)} onToggleDislike={() => handleToggleDislike(currentVideo.id)} onToggleFavorite={() => handleToggleFavorite(currentVideo.id)} onWriteReview={() => { setReviewInitialTab('Write'); setActiveSecondaryView('reviews'); }} />
                   </div>
                 ) : (
@@ -2479,20 +2773,135 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-6">
                       <div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Views::</span><span className="text-[13px] font-black text-white">{currentVideo.viewCount.toLocaleString()}</span></div>
                       <div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Likes::</span><span className="text-[13px] font-black text-white">{currentVideo.likeCount.toLocaleString()}</span></div>
-                      <button onClick={() => { setReviewInitialTab('Read'); setActiveSecondaryView('reviews'); }} className="text-[10px] font-black uppercase tracking-widest text-purple-400 hover:text-purple-300 flex items-center gap-2 transition-colors"><i className="fa-solid fa-message text-[11px]"></i><span>Reviews::</span><span className="text-[13px] font-black text-white ml-0.5">{(currentVideo.reviews?.length || 0).toLocaleString()}</span></button>
-                      <button onClick={() => setActiveSecondaryView(v => v === 'vault' ? 'none' : 'vault')} className="text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 flex items-center gap-2 transition-colors"><i className="fa-solid fa-vault text-[11px]"></i><span>{currentUser.replace(/_/g, ' ')}'S VAULT::</span><span className="text-[13px] font-black text-white ml-0.5">{vaultCount.toLocaleString()}</span></button>
+                      <button onClick={()=>{if(!isUserLocked&&!isAuthorized){setShowIdentify(true);return;}setShowVideoReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{(currentVideo.reviews?.filter(r=>r.isApproved)?.length||0).toLocaleString()}</span></button>
+                      {(isUserLocked||isAuthorized)&&<button onClick={() => setActiveSecondaryView(v => v === 'vault' ? 'none' : 'vault')} className="text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 flex items-center gap-2 transition-colors"><i className="fa-solid fa-vault text-[11px]"></i><span>{currentUser.replace(/_/g, ' ')}'S VAULT::</span><span className="text-[13px] font-black text-white ml-0.5">{vaultCount.toLocaleString()}</span></button>}
                     </div>
                   </div>
-                  {currentUser !== MASTER_IDENTITY && currentVideo && (
-                    <button
-                      onClick={() => setShowPlaylistPanel(v => !v)}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 transition-all"
-                      title="Add to playlist"
-                    >
-                      <i className="fa-solid fa-plus text-[11px]"/>
-                      <span className="text-[9px] font-black uppercase tracking-widest">Add to List</span>
-                    </button>
+                  <button onClick={handleVideoFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen">
+                    <i className={`fa-solid ${isVideoFullscreen ? 'fa-compress' : 'fa-expand'} text-[16px]`}/>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Read/Review toggle ── */}
+            {currentVideo && showVideoReviews && (
+              <div className="w-full px-8 mt-3" ref={videoReviewRef}>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-0.5 w-fit">
+                    <button onClick={()=>setActiveSecondaryView('none')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${activeSecondaryView!=='reviews'?'bg-blue-600 text-white shadow':'text-slate-400 hover:text-white'}`}>Read</button>
+                    {!currentVideo.reviews?.some(r=>r.user===currentUser) && (
+                      <button onClick={()=>setActiveSecondaryView('reviews')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${activeSecondaryView==='reviews'?'bg-blue-600 text-white shadow':'text-slate-400 hover:text-white'}`}>Review</button>
+                    )}
+                  </div>
+                  {currentVideo.reviews?.some(r=>r.user===currentUser) && (
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Already reviewed</span>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Write review form (inline) ── */}
+            {activeSecondaryView === 'reviews' && showVideoReviews && currentVideo && (
+              <div className="w-full px-8 mt-3" ref={el=>el?.scrollIntoView({behavior:'smooth',block:'nearest'})}>
+                <div className="bg-white/5 border border-blue-500/20 rounded-2xl px-6 py-4 space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Write a Review</p>
+                  <StarRatingWidget value={videoReviewRating} onChange={setVideoReviewRating} size="text-xl"/>
+                  <textarea autoFocus value={videoReviewComment} onChange={e=>setVideoReviewComment(e.target.value)} placeholder="Write your review..." rows={3}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/30 resize-none"/>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={()=>setActiveSecondaryView('none')} className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-black uppercase hover:text-white transition-all">Cancel</button>
+                    <button onClick={()=>{
+                      const alreadyReviewed = currentVideo.reviews?.some(r=>r.user===currentUser);
+                      if(alreadyReviewed){ setActiveSecondaryView('none'); return; }
+                      const review = {id:`r-${Date.now()}`,rating:videoReviewRating,text:videoReviewComment.trim(),user:currentUser,timestamp:Date.now(),isApproved:isAuthorized};
+                      setVideos(prev=>{
+                        const updated = prev.map(v=>v.id===currentVideo.id?{...v,reviews:[review,...(v.reviews||[])]}:v);
+                        try { localStorage.setItem(DATA_KEY, JSON.stringify(updated)); } catch {}
+                        lastVideoSaveTime.current = Date.now();
+                        saveVideosToFirestore(updated);
+                        return updated;
+                      });
+                      setVideoReviewComment('');setVideoReviewRating(5);setActiveSecondaryView('none');if(!isAuthorized){setShowPendingToast(true);setTimeout(()=>setShowPendingToast(false),5000);}
+                    }} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase hover:bg-blue-500 transition-all">Submit</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Approved video reviews ── */}
+            {currentVideo && showVideoReviews && activeSecondaryView !== 'reviews' && (
+              <div className="w-full px-8 mt-4">
+                {/* User's own pending review */}
+                {!isAuthorized && currentVideo.reviews?.filter(r=>r.user===currentUser&&!r.isApproved).map(r=>(
+                  <div key={r.id} className="bg-orange-500/10 border border-orange-500/20 rounded-2xl px-6 py-4 flex gap-4 mb-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-orange-600/20 border border-orange-500/30 flex items-center justify-center">
+                      <i className="fa-solid fa-user text-orange-400 text-[10px]"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{currentUser?.replace(/_/g,' ')}</span>
+                        <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=r.rating?'text-yellow-400':'text-slate-700'}`}/>)}</div>
+                        <span className="text-[8px] text-orange-500 font-black uppercase">⏳ Pending</span>
+                      </div>
+                      {r.text&&<p className="text-[12px] text-slate-300 leading-relaxed">{r.text}</p>}
+                    </div>
+                  </div>
+                ))}
+                {currentVideo.reviews?.filter(r=>r.isApproved).length === 0 ? (
+                  <p className="text-[9px] text-slate-600 font-black uppercase tracking-widest text-center py-4">No reviews yet — be the first</p>
+                ) : (
+                <div className="space-y-2">
+                  {currentVideo.reviews.filter(r=>r.isApproved).map(rev=>(
+                    <div key={rev.id} className="bg-white/5 border border-white/5 rounded-2xl px-6 py-4 flex gap-4">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                        <i className="fa-solid fa-user text-blue-400 text-[10px]"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{rev.user?.replace(/_/g,' ')}</span>
+                          <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=rev.rating?'text-yellow-400':'text-slate-700'}`}/>)}</div>
+                          <span className="text-[8px] text-slate-600">{new Date(rev.timestamp).toLocaleDateString()}</span>
+                          {isAuthorized && <button onClick={()=>{
+                            deletedReviewIds.current.add(rev.id);
+                            try{localStorage.setItem(DELETED_REVIEWS_KEY,JSON.stringify([...deletedReviewIds.current]));}catch{}
+
+                            setVideos(p=>{
+                              const updated=p.map(v=>v.id===currentVideo.id?{...v,reviews:v.reviews?.filter(r=>r.id!==rev.id)}:v);
+                              try{localStorage.setItem(DATA_KEY,JSON.stringify(updated));}catch{}
+                              lastVideoSaveTime.current=Date.now();
+                              saveVideosToFirestore(updated);
+                              return updated;
+                            });
+                          }} className="ml-auto w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all flex-shrink-0"><i className="fa-solid fa-xmark text-[9px]"/></button>}
+                        </div>
+                        {rev.text && <p className="text-[12px] text-slate-300 leading-relaxed">{rev.text}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Pending video reviews (admin only) ── */}
+            {isAuthorized && currentVideo && showVideoReviews && currentVideo.reviews?.filter(r=>!r.isApproved).length > 0 && (
+              <div className="w-full px-8 mt-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-orange-400 mb-2 px-1">Pending Approval</p>
+                <div className="space-y-2">
+                  {currentVideo.reviews.filter(r=>!r.isApproved).map(rev=>(
+                    <div key={rev.id} className="bg-orange-500/5 border border-orange-500/20 rounded-2xl px-6 py-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{rev.user?.replace(/_/g,' ')}</span>
+                        <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=><i key={s} className={`fa-solid fa-star text-[8px] ${s<=rev.rating?'text-yellow-400':'text-slate-700'}`}/>)}</div>
+                      </div>
+                      {rev.text && <p className="text-[12px] text-slate-300 leading-relaxed mb-2">{rev.text}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={()=>{setVideos(p=>{const u=p.map(v=>v.id===currentVideo.id?{...v,reviews:v.reviews?.map(r=>r.id===rev.id?{...r,isApproved:isAuthorized}:r)}:v);try{localStorage.setItem(DATA_KEY,JSON.stringify(u));}catch{}lastVideoSaveTime.current=Date.now();saveVideosToFirestore(u);return u;});}} className="px-3 py-1 bg-green-600 text-white rounded-lg text-[8px] font-black uppercase hover:bg-green-500 transition-all">Approve</button>
+                        <button onClick={()=>{setVideos(p=>{const u=p.map(v=>v.id===currentVideo.id?{...v,reviews:v.reviews?.filter(r=>r.id!==rev.id)}:v);try{localStorage.setItem(DATA_KEY,JSON.stringify(u));}catch{}lastVideoSaveTime.current=Date.now();saveVideosToFirestore(u);return u;});}} className="px-3 py-1 bg-red-600/20 border border-red-500/30 text-red-400 rounded-lg text-[8px] font-black uppercase hover:bg-red-600/40 transition-all">Reject</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -2503,9 +2912,7 @@ const App: React.FC = () => {
               {activeSecondaryView === 'vault' && (
                 <VaultGallery videos={videos.filter(v => currentUserFavorites.includes(v.id))} categoryColors={categoryColors} currentVideo={currentVideo!} onSelect={(v) => { setCurrentVideoId(v.id); setActiveSecondaryView('none'); }} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} isOpen={true} onClose={() => setActiveSecondaryView('none')} isAuthorized={isAuthorized} onMoveVideo={() => {}} currentUser={currentUser} />
               )}
-              {activeSecondaryView === 'reviews' && currentVideo && (
-                <FloatingReviewHub video={currentVideo} isOpen={true} initialTab={reviewInitialTab} onClose={() => setActiveSecondaryView('none')} onSubmitReview={(r, t) => { const review = { id: `r-${Date.now()}`, rating: r, text: t, user: currentUser, timestamp: Date.now(), isApproved: false }; setVideos(prev => prev.map(v => v.id === currentVideo.id ? { ...v, reviews: [review, ...(v.reviews || [])] } : v)); }} />
-              )}
+
             </div>
           </div>
         </section>
@@ -2582,9 +2989,9 @@ const App: React.FC = () => {
                       </div>
                       <button
                         onClick={e => { e.stopPropagation(); handleDeletePlaylist(pl.id); }}
-                        className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-700 hover:text-red-400 transition-all"
+                        className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all flex-shrink-0"
                       >
-                        <i className="fa-solid fa-trash text-[9px]"/>
+                        <i className="fa-solid fa-xmark text-[9px]"/>
                       </button>
                     </div>
 
@@ -2604,7 +3011,7 @@ const App: React.FC = () => {
                               </button>
                               <button
                                 onClick={() => handleRemoveFromPlaylist(pl.id, vid)}
-                                className="opacity-0 group-hover/item:opacity-100 w-5 h-5 rounded flex items-center justify-center text-slate-700 hover:text-red-400 transition-all"
+                                className="opacity-0 group-hover/item:opacity-100 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"
                               >
                                 <i className="fa-solid fa-xmark text-[8px]"/>
                               </button>
@@ -2649,8 +3056,9 @@ const App: React.FC = () => {
             onLogout={handleLogout}
             onAdminClick={() => setShowLoginOverlay(true)}
             showUserPlaylist={showUserPlaylist}
-            onToggleUserPlaylist={() => setShowUserPlaylist(v => !v)}
-
+            onToggleUserPlaylist={()=>setShowUserPlaylist(v=>!v)}
+            onOpenUserPlaylist={()=>setShowUserPlaylist(true)}
+            onPendingReview={()=>{setShowPendingToast(true);setTimeout(()=>setShowPendingToast(false),5000);}}
           />
       )}
 

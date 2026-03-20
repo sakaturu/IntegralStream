@@ -9,7 +9,7 @@ const getUserPic = (username: string): string => getPicMap()[username] || '';
 
 interface LoginGateProps {
   onLogin: (pass: string, remember: boolean) => boolean;
-  onIdentify: (name: string, remember: boolean) => boolean;
+  onIdentify: (name: string, remember: boolean, pic?: string) => boolean;
   onRestore: (key: string) => boolean;
   onForget?: () => void;
   onClose?: () => void;
@@ -60,7 +60,19 @@ const LoginGate: React.FC<LoginGateProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => setPhotoPrev(ev.target?.result as string);
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 120;
+        const ratio = Math.min(MAX / img.width, MAX / img.height);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setPhotoPrev(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.src = ev.target?.result as string;
+    };
     reader.readAsDataURL(file);
   };
 
@@ -73,11 +85,13 @@ const LoginGate: React.FC<LoginGateProps> = ({
     setTimeout(() => {
       let success = false;
       if (activeTab === 'Identify') {
-        success = onIdentify(personaName, remember);
+        success = onIdentify(personaName, remember, photoPrev || undefined);
         if (success && photoPrev) {
           const key = personaName.trim().toUpperCase().replace(/\s+/g,'_');
           setUserPic(key, photoPrev);
+          // Dispatch twice to ensure both MusicApp and main App catch it
           window.dispatchEvent(new Event('picUpdated'));
+          setTimeout(() => window.dispatchEvent(new Event('picUpdated')), 100);
         }
       } else if (activeTab === 'Terminal') {
         success = onLogin(pass, remember);
