@@ -46,7 +46,6 @@ interface MusicAppProps {
   pendingReviewsCount?:number; onLogout?:()=>void; onAdminClick?:()=>void;
   showUserPlaylist?:boolean; onToggleUserPlaylist?:()=>void; onOpenUserPlaylist?:()=>void;
   onPendingReview?:()=>void;
-  onUserChange?:(user:string, locked:boolean)=>void;
 }
 
 // ─── Shared auth constants (must match APP.tsx) ─────────────────────────────
@@ -134,8 +133,6 @@ const extractYoutubeId=(url:string):string=>{
   if(u.includes('/shorts/'))return u.split('/shorts/')[1]?.split(/[?&#]/)[0]||'';
   if(u.includes('/embed/'))return u.split('/embed/')[1]?.split(/[?&#]/)[0]||'';
   if(u.includes('v='))return u.split('v=')[1]?.split(/[&#]/)[0]||'';
-  // Playlist-only URL — no video ID, return empty
-  if(u.includes('list='))return'';
   const m=u.match(/[a-zA-Z0-9_-]{11}/);
   return m?m[0]:'';
 };
@@ -143,31 +140,13 @@ const extractYoutubeId=(url:string):string=>{
 
 const getThumbnailUrl = (track: MusicTrack): string => {
   if (track.thumbnail) return track.thumbnail;
-  const url = track.url || '';
-  const u = url.replace('music.youtube.com','www.youtube.com');
-  // YouTube video thumbnail
-  const id = extractYoutubeId(url);
+  const id = extractYoutubeId(track.url || '');
   if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-  // YouTube playlist — use first video thumbnail via playlist API workaround
-  const listMatch = u.match(/[?&]list=([a-zA-Z0-9_-]+)/);
-  if (listMatch) return `https://i.ytimg.com/vi/${listMatch[1].slice(2,13)}/hqdefault.jpg`;
   return '';
 };
 
 const getEmbedUrl = (url:string):{embedUrl:string;type:'youtube'|'soundcloud'|'unknown'} => {
   if (url.includes('youtube.com')||url.includes('youtu.be')||url.includes('music.youtube')) {
-    const u = url.replace('music.youtube.com','www.youtube.com');
-    // Playlist URL
-    const listMatch = u.match(/[?&]list=([a-zA-Z0-9_-]+)/);
-    const vMatch = u.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
-    if (listMatch) {
-      const listId = listMatch[1];
-      const videoId = vMatch ? vMatch[1] : '';
-      const embedUrl = videoId
-        ? `https://www.youtube.com/embed/${videoId}?list=${listId}&autoplay=1&enablejsapi=1&rel=0&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`
-        : `https://www.youtube.com/embed/videoseries?list=${listId}&autoplay=1&enablejsapi=1&rel=0&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`;
-      return {embedUrl, type:'youtube'};
-    }
     const id=extractYoutubeId(url).trim();
     if (id) return {embedUrl:`https://www.youtube.com/embed/${id}?autoplay=1&enablejsapi=1&rel=0&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`,type:'youtube'};
   }
@@ -176,13 +155,6 @@ const getEmbedUrl = (url:string):{embedUrl:string;type:'youtube'|'soundcloud'|'u
     let scUrl = url;
     try { scUrl = new URL(url).origin + new URL(url).pathname; } catch {}
     return {embedUrl:`https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&auto_play=true&hide_related=true&show_comments=false&show_user=true&visual=true&color=%23a855f7`,type:'soundcloud'};
-  }
-  if (url.includes('audiomack.com')) {
-    // Fix double slashes after protocol
-    const clean = url.replace(/^(https?:\/\/)/, '@@').replace(/\/\/+/g, '/').replace('@@', 'https://').split('?')[0].split('#')[0];
-    // Ensure embed path format: audiomack.com/embed/artist/type/slug
-    const embedBase = clean.includes('/embed/') ? clean : clean.replace('audiomack.com/', 'audiomack.com/embed/');
-    return {embedUrl: embedBase + '?background=1', type: 'audiomack' as any};
   }
   return {embedUrl:url,type:'unknown'};
 };
@@ -198,33 +170,6 @@ const IntegralLogo = ({className='w-10 h-10'}:{className?:string}) => (
   </svg>
 );
 
-// ─── Reusable Tooltip ─────────────────────────────────────────────────────────
-const Tooltip = ({ label, children, position='top' }: { label: string; children: React.ReactNode; position?: 'top'|'bottom' }) => {
-  const [coords, setCoords] = React.useState<{x:number;y:number}|null>(null);
-  const ref = React.useRef<HTMLDivElement>(null);
-  const show = () => {
-    if (!ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    setCoords({ x: r.left + r.width / 2, y: position === 'top' ? r.top : r.bottom });
-  };
-  return (
-    <div ref={ref} className="relative inline-flex" onMouseEnter={show} onMouseLeave={()=>setCoords(null)}>
-      {children}
-      {coords && (
-        <div
-          className="fixed z-[9999] pointer-events-none whitespace-nowrap"
-          style={{ left: coords.x, top: position === 'top' ? coords.y - 8 : coords.y + 8, transform: position === 'top' ? 'translate(-50%,-100%)' : 'translate(-50%,0)' }}
-        >
-          <div className="bg-slate-900 border border-white/20 text-white text-[9px] font-black uppercase tracking-wide px-2.5 py-1.5 rounded-lg shadow-2xl">
-            {label}
-          </div>
-          <div className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45 border-white/20 ${position==='top'?'top-full -mt-[5px] border-b border-r':'bottom-full -mb-[5px] border-t border-l'}`}/>
-        </div>
-      )}
-    </div>
-  );
-};
-
 const VIZ_GROUPS = [
   { group:'Kaleidoscope', modes:['Bloom','Fractal','Storm','Nebula','Crystal'] },
   { group:'Waveform',     modes:['Oscilloscope','Mirror Wave','Ribbon','Lissajous','Spiral Wave'] },
@@ -233,10 +178,9 @@ const VIZ_GROUPS = [
   { group:'Psychedelic',  modes:['Plasma','Tunnel','Liquid','Prism','Mandala'] },
   { group:'VJ',           modes:['Grid Flash','Scanlines','Strobe','RGB Shift','Color Flood'] },
   { group:'Analytical',   modes:['Freq Chart','BPM Graph','Stereo Field','Harmonic','Particle Storm'] },
-  { group:'Cosmos',       modes:['Starfield','Galaxy Spin','Nebula Cloud','Black Hole','Aurora'] },
 ];
 const ALL_MODES   = VIZ_GROUPS.flatMap(g => g.modes);
-const GROUP_COLORS= ['#a855f7','#06b6d4','#ef4444','#f59e0b','#ec4899','#3b82f6','#10b981','#60a5fa'];
+const GROUP_COLORS= ['#a855f7','#06b6d4','#ef4444','#f59e0b','#ec4899','#3b82f6','#10b981'];
 
 // Picker-only: shows the mode buttons without the black canvas background
 const VisualizerPickerOnly = ({onActivate}:{onActivate?:(mode?:number)=>void}) => {
@@ -291,45 +235,26 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
   const morphRef    = useRef(1); // start at 1 = no transition
   const pendingModeChange = useRef(false);
   const transitionTypeRef = useRef(0);
-  const [transitionStyle, setTransitionStyle] = useState(-1); // -1 = Auto
+  const [transitionStyle, setTransitionStyle] = useState(0);
   const [transitionOpen,  setTransitionOpen]  = useState(false);
 
   const TRANSITION_STYLES = [
     { name: 'Crossfade',       icon: 'fa-circle-half-stroke',  color: '#06b6d4' },
     { name: 'Morphing',        icon: 'fa-wand-magic-sparkles', color: '#a855f7' },
-    { name: 'Slice Wipe',      icon: 'fa-sliders',             color: '#f97316' },
-    { name: 'Pixel Reveal',    icon: 'fa-bezier-curve',        color: '#10b981' },
-    { name: 'Ripple Dissolve', icon: 'fa-staff-snake',         color: '#ec4899' },
-    { name: 'Zoom Burst',      icon: 'fa-expand',              color: '#f59e0b' },
-    { name: 'Shatter',         icon: 'fa-burst',               color: '#ef4444' },
-    { name: 'Iris',            icon: 'fa-circle-dot',          color: '#8b5cf6' },
-    { name: 'Diagonal Wipe',   icon: 'fa-angles-right',        color: '#14b8a6' },
-    { name: 'Glitch',          icon: 'fa-bolt',                color: '#fb923c' },
-    { name: 'Page Turn',       icon: 'fa-book-open',           color: '#38bdf8' },
-    { name: 'Kaleidoscope',    icon: 'fa-snowflake',           color: '#c084fc' },
-    { name: 'Burn',            icon: 'fa-fire',                color: '#f97316' },
-    { name: 'Matrix Rain',     icon: 'fa-code',                color: '#4ade80' },
-    { name: 'Vortex',          icon: 'fa-hurricane',           color: '#818cf8' },
-    { name: 'TV Static',       icon: 'fa-tv',                  color: '#94a3b8' },
-    { name: 'Mosaic',          icon: 'fa-table-cells',         color: '#fb7185' },
-    { name: 'Shockwave',       icon: 'fa-circle-radiation',    color: '#fde68a' },
-    { name: 'Ink Bleed',       icon: 'fa-droplet',             color: '#7dd3fc' },
-    { name: 'Film Burn',       icon: 'fa-film',                color: '#fbbf24' },
+    { name: 'Visual Transition', icon: 'fa-sliders',           color: '#f97316' },
+    { name: 'Interpolation',   icon: 'fa-bezier-curve',        color: '#10b981' },
+    { name: 'Metamorphosis',   icon: 'fa-staff-snake',         color: '#ec4899' },
   ];
-  const AUTO_TRANSITION = { name: 'Auto', icon: 'fa-shuffle', color: '#facc15' };
-  // transitionStyle === -1 means Auto (randomly picks on each mode change)
   const [mode,       setMode]      = useState(initialMode);
   const [groupOpen,  setGroupOpen] = useState<number|null>(null);
   const [autoOn,     setAutoOn]    = useState(autoStart);
-  const autoOnRef = useRef(autoStart);
-  useEffect(()=>{ autoOnRef.current = autoOn; }, [autoOn]);
   const [pickerVisible, setPickerVisible] = useState(true);
   const idleTimerRef = useRef<number>(0);
 
   const resetIdleTimer = () => {
     setPickerVisible(true);
     clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = window.setTimeout(() => setPickerVisible(false), 3000);
+    idleTimerRef.current = window.setTimeout(() => setPickerVisible(false), 2000);
   };
 
   useEffect(() => {
@@ -340,29 +265,16 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
   const modeIndexRef = useRef(0);
   const lastModeRef  = useRef(-1); // avoid repeating same mode twice
 
-  // Track whether the user has explicitly chosen a transition style
-  const userPinnedTransition = useRef(false);
-
   useEffect(()=>{
-    prevModeRef.current = modeRef.current;       // snapshot OLD before updating
+    prevModeRef.current = modeRef.current;
     modeRef.current = mode;
     modeIndexRef.current = mode;
-    morphRef.current = 0;                        // restart morph progress
-    pendingModeChange.current = false;
-    // Only randomise if user hasn't pinned a style
-    if (!userPinnedTransition.current) {
-      transitionTypeRef.current = Math.floor(Math.random() * 20);
-    }
+    morphRef.current = 0;
+    pendingModeChange.current = false; // RAF loop will see morphRef=0
+    transitionTypeRef.current = Math.floor(Math.random() * 5);
   },[mode]);
 
-  useEffect(()=>{
-    if (transitionStyle === -1) {
-      userPinnedTransition.current = false;      // Auto — let mode-change effect randomise
-    } else {
-      userPinnedTransition.current = true;       // user explicitly pinned a style
-      transitionTypeRef.current = transitionStyle;
-    }
-  },[transitionStyle]);
+  useEffect(()=>{ transitionTypeRef.current = transitionStyle; },[transitionStyle]);
 
   // ── auto-shuffle: random pick every 5s ──────────────────────────────────
   useEffect(()=>{
@@ -416,9 +328,8 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
     const ox  = off.getContext('2d')!;
 
     const resize = () => {
-      // Walk up the DOM to find the first ancestor with real dimensions
-      let root: HTMLElement | null = canvas.parentElement;
-      while (root && root.clientWidth === 0 && root !== document.body) root = root.parentElement;
+      // Use the root container div dimensions
+      const root = canvas.closest('.viz-root') as HTMLElement || canvas.parentElement;
       const pw = Math.min(root?.clientWidth  || window.innerWidth,  800);
       const ph = Math.min(root?.clientHeight || window.innerHeight, 600);
       canvas.width  = pw;  canvas.height  = ph;
@@ -458,13 +369,14 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
       rafRef.current = requestAnimationFrame(draw);
       // Always advance morph even when paused so transitions complete
       if (morphRef.current < 1) {
-        // 1800ms transition at 60fps → step = 1 / (1.8 * 60) ≈ 0.0093
-        const MORPH_SPEED_STEP = 1 / (1.8 * 60);
+        const MORPH_SPEED_STEP = 0.007 / 1.6 * 60;
         morphRef.current = Math.min(1, morphRef.current + MORPH_SPEED_STEP);
       }
-      if (isPlayingRef.current || morphRef.current < 1) {
-        t += .007;
+      if (!isPlayingRef.current && morphRef.current >= 1) {
+        // Paused and no transition — skip heavy rendering
+        return;
       }
+      t += .007;
       const cw = canvas.width, ch = canvas.height;
 
       // ── always use animated fallback (iframe audio not accessible to Web Audio API) ──
@@ -497,7 +409,7 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
       hue  = (hue + .5 + bass*4 + beat*3) % 360; // hue races with music
 
       // ── beat-triggered random visual switch (when autoOn) ────────────────
-      if (autoOnRef.current && beat > 0.55 && morphRef.current > 0.9) {
+      if (autoOn && beat > 0.55 && morphRef.current > 0.9) {
         let next;
         do { next = Math.floor(Math.random() * ALL_MODES.length); }
         while (next === lastModeRef.current && ALL_MODES.length > 1);
@@ -859,7 +771,7 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
       // ══════════════════════════════════════════════════════════════════════
       // GROUP 6 — Analytical (30–34)
       // ══════════════════════════════════════════════════════════════════════
-      else if (m >= 30 && m < 35) {
+      else {
         c.fillStyle='rgba(0,0,5,.88)'; c.fillRect(0,0,cw,ch);
         const d = fd;
         // grid lines
@@ -902,7 +814,7 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
             }
             c.stroke();
           });
-        } else if (m === 34) {  // Particle Storm — bass-driven particle explosion from center
+        } else {  // Particle Storm — bass-driven particle explosion from center
           c.fillStyle='rgba(0,0,0,.18)'; c.fillRect(0,0,cw,ch);
           c.save(); c.translate(cw/2,ch/2);
           const count=80;
@@ -927,317 +839,39 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
         }
       }
 
-      // ══════════════════════════════════════════════════════════════════════
-      // GROUP 7 — Cosmos (modes 35–39)
-      // ══════════════════════════════════════════════════════════════════════
-      else if (m >= 35) {
-        c.fillStyle='#000005'; c.fillRect(0,0,cw,ch);
-        const cosmoCx=cw/2, cosmoCy=ch/2;
-
-        if (m === 35) {
-          // ── STARFIELD: thousands of blinking stars with warp streaks ──────
-          // Deep background — subtle fade so trails persist but sky stays dark
-          c.fillStyle='rgba(0,0,6,0.18)'; c.fillRect(0,0,cw,ch);
-
-          const warpSpeed  = 1.2 + bass * 5 + beat * 3.5;
-          const beatFlash  = beat * 0.6;
-
-          // ── Layer 1: 2000 stars spread uniformly across the entire canvas ─
-          // LCG-based hash gives true uniform distribution (not sin/cos clustering)
-          const STATIC = 2000;
-          for (let si=0; si<STATIC; si++) {
-            // LCG hash — produces well-distributed positions across full canvas
-            const hx = (si * 1664525 + 1013904223) & 0x7fffffff;
-            const hy = (si * 22695477 + 1)         & 0x7fffffff;
-            const sx = (hx / 0x7fffffff) * cw;
-            const sy = (hy / 0x7fffffff) * ch;
-
-            // each star has a unique blink speed and phase offset
-            const blinkSpeed = 0.5 + (si % 23) * 0.18;
-            const blinkPhase = (si * 2.399963) % (Math.PI * 2); // golden-ratio spread
-            // sharp twinkle: power-2 makes it pop on/off rather than gently fade
-            const raw = Math.sin(t * blinkSpeed + blinkPhase);
-            const twinkle = raw * raw * (raw > 0 ? 1 : -1) * 0.5 + 0.5; // 0→1, snappy
-
-            // beat makes ALL stars flash simultaneously — like a pulse
-            const brightness = Math.min(1, twinkle * (0.5 + bass * 0.35) + beatFlash * 0.7);
-
-            // size tiers: 60% tiny, 30% medium, 10% large
-            const tier = si % 10;
-            const baseSize = tier < 6 ? 0.5 : tier < 9 ? 1.1 : 2.0;
-            const size2 = baseSize * (0.4 + twinkle * 0.9);
-
-            // colour: 65% cool white, 15% blue, 10% gold, 10% purple/pink
-            const ct = si % 20;
-            const hh  = ct < 13 ? 0   : ct < 16 ? 210 : ct < 18 ? 45 : 290;
-            const sat = ct < 13 ? 5   : ct < 16 ? 80  : ct < 18 ? 90 : 75;
-
-            if (brightness < 0.05) continue; // skip invisible stars — big perf win
-
-            c.fillStyle = `hsla(${hh},${sat}%,97%,${brightness})`;
-            c.beginPath(); c.arc(sx, sy, size2, 0, Math.PI*2); c.fill();
-
-            // large & medium stars get a cross-spike sparkle when bright
-            if (size2 > 1.0 && twinkle > 0.6) {
-              const spikeLen = size2 * (3 + twinkle * 6);
-              const alpha = (twinkle - 0.6) * 2.5 * brightness;
-              c.strokeStyle = `hsla(${hh},${sat}%,98%,${alpha})`;
-              c.lineWidth = 0.7;
-              c.beginPath();
-              c.moveTo(sx - spikeLen, sy); c.lineTo(sx + spikeLen, sy);
-              c.moveTo(sx, sy - spikeLen); c.lineTo(sx, sy + spikeLen);
-              c.stroke();
-              // glow halo
-              const glow = c.createRadialGradient(sx, sy, 0, sx, sy, size2 * 5);
-              glow.addColorStop(0, `hsla(${hh},${sat}%,98%,${brightness * 0.5})`);
-              glow.addColorStop(1, 'rgba(0,0,0,0)');
-              c.fillStyle = glow;
-              c.beginPath(); c.arc(sx, sy, size2 * 5, 0, Math.PI*2); c.fill();
-            }
-          }
-
-          // ── Layer 2: 400 warp-tunnel stars flying outward ─────────────────
-          const WARP = 400;
-          for (let wi=0; wi<WARP; wi++) {
-            const seed = wi * 1.618;
-            const angle = (seed * 137.508) % (Math.PI*2);
-            const phase = ((seed * 0.07 + t * warpSpeed * 0.014) % 1);
-            const dist = phase * Math.max(cw, ch) * 0.78;
-            const x2 = cosmoCx + Math.cos(angle) * dist;
-            const y2 = cosmoCy + Math.sin(angle) * dist;
-            const size3 = phase * phase * (2.5 + bass * 5 + beat * 3);
-            const bright2 = phase * phase;
-            const hh2 = (hue + wi * 9) % 360;
-
-            // streak trail — longer & brighter with bass
-            const trailLen = phase * (20 + bass * 80 + beat * 40);
-            const tx2 = cosmoCx + Math.cos(angle) * Math.max(0, dist - trailLen);
-            const ty2 = cosmoCy + Math.sin(angle) * Math.max(0, dist - trailLen);
-            const trailG = c.createLinearGradient(tx2, ty2, x2, y2);
-            trailG.addColorStop(0, 'rgba(255,255,255,0)');
-            trailG.addColorStop(0.6, `hsla(${hh2},70%,90%,${bright2 * 0.3})`);
-            trailG.addColorStop(1, `hsla(${hh2},90%,98%,${bright2 * 0.9})`);
-            c.strokeStyle = trailG;
-            c.lineWidth = Math.max(0.5, size3 * 0.6);
-            c.beginPath(); c.moveTo(tx2, ty2); c.lineTo(x2, y2); c.stroke();
-
-            // star core
-            c.fillStyle = `hsla(${hh2},50%,98%,${bright2})`;
-            c.beginPath(); c.arc(x2, y2, Math.max(0.3, size3), 0, Math.PI*2); c.fill();
-          }
-
-          // ── Layer 3: beat-triggered nova flash from random stars ──────────
-          if (beat > 0.3) {
-            const novaCount = Math.floor(beat * 8);
-            for (let ni=0; ni<novaCount; ni++) {
-              const nx = ((Math.sin((ni+Math.floor(t*10)) * 93.7) * 0.5 + 0.5)) * cw;
-              const ny = ((Math.cos((ni+Math.floor(t*10)) * 157.3) * 0.5 + 0.5)) * ch;
-              const nr = beat * 40 + ni * 5;
-              const ng = c.createRadialGradient(nx, ny, 0, nx, ny, nr);
-              ng.addColorStop(0, `hsla(${(hue+ni*40)%360},100%,100%,${beat * 0.9})`);
-              ng.addColorStop(0.3, `hsla(${(hue+ni*40)%360},80%,80%,${beat * 0.4})`);
-              ng.addColorStop(1, 'rgba(0,0,0,0)');
-              c.fillStyle = ng;
-              c.beginPath(); c.arc(nx, ny, nr, 0, Math.PI*2); c.fill();
-            }
-          }
-
-          // ── Centre lens flare / warp core glow ───────────────────────────
-          const coreR2 = 6 + bass * 25 + beat * 15;
-          const cg2 = c.createRadialGradient(cosmoCx, cosmoCy, 0, cosmoCx, cosmoCy, coreR2 * 4);
-          cg2.addColorStop(0, `rgba(255,255,255,${0.7 + bass * 0.3})`);
-          cg2.addColorStop(0.15, `hsla(${hue},90%,85%,${0.3 + bass * 0.3})`);
-          cg2.addColorStop(1, 'rgba(0,0,0,0)');
-          c.fillStyle = cg2;
-          c.beginPath(); c.arc(cosmoCx, cosmoCy, coreR2 * 4, 0, Math.PI*2); c.fill();
-
-        } else if (m === 36) {
-          // ── GALAXY SPIN: spiral arms of a rotating galaxy ─────────────────
-          c.fillStyle='rgba(0,0,8,0.18)'; c.fillRect(0,0,cw,ch);
-          const arms = 3;
-          const particlesPerArm = 180;
-          const galRot = t * (0.12 + bass * 0.25);
-          for (let arm=0; arm<arms; arm++) {
-            const armOffset = (arm / arms) * Math.PI * 2;
-            for (let pi=0; pi<particlesPerArm; pi++) {
-              const frac = pi / particlesPerArm;
-              const armAngle = armOffset + frac * Math.PI * 4 + galRot;
-              const radius = frac * Math.min(cw,ch) * 0.44 * (1 + bass * 0.15);
-              // scatter perpendicular to arm
-              const scatter = (Math.sin(pi * 7.3 + arm * 3.1) * 0.12 + Math.cos(pi * 5.1) * 0.06) * radius;
-              const px = cosmoCx + Math.cos(armAngle) * radius + Math.cos(armAngle + Math.PI/2) * scatter;
-              const py = cosmoCy + Math.sin(armAngle) * radius + Math.sin(armAngle + Math.PI/2) * scatter;
-              const brightness = 0.15 + (1-frac) * 0.7 + bass * 0.2;
-              const hh = (200 + arm * 60 + frac * 80 + hue * 0.3) % 360;
-              const sz = (1 - frac) * (3 + bass * 5) + 0.5;
-              const g = c.createRadialGradient(px,py,0,px,py,sz*2);
-              g.addColorStop(0, `hsla(${hh},90%,90%,${brightness})`);
-              g.addColorStop(1, 'rgba(0,0,0,0)');
-              c.fillStyle = g;
-              c.beginPath(); c.arc(px, py, sz*2, 0, Math.PI*2); c.fill();
-            }
-          }
-          // bright galactic core
-          const coreR = 18 + bass * 40 + beat * 20;
-          const cg = c.createRadialGradient(cosmoCx,cosmoCy,0,cosmoCx,cosmoCy,coreR*2.5);
-          cg.addColorStop(0, `hsla(${(hue+40)%360},100%,98%,0.95)`);
-          cg.addColorStop(0.3, `hsla(${hue},80%,75%,0.5)`);
-          cg.addColorStop(1, 'rgba(0,0,0,0)');
-          c.fillStyle=cg; c.beginPath(); c.arc(cosmoCx,cosmoCy,coreR*2.5,0,Math.PI*2); c.fill();
-
-        } else if (m === 37) {
-          // ── NEBULA CLOUD: layered volumetric gas clouds ───────────────────
-          c.fillStyle='rgba(0,0,12,0.22)'; c.fillRect(0,0,cw,ch);
-          // layered blob passes
-          const layers = [
-            { hh: (hue+0)%360,   scale: 1.0, speed: 0.07, alpha: 0.12 },
-            { hh: (hue+60)%360,  scale: 0.7, speed: 0.11, alpha: 0.15 },
-            { hh: (hue+140)%360, scale: 0.5, speed: 0.17, alpha: 0.18 },
-            { hh: (hue+200)%360, scale: 0.35,speed: 0.25, alpha: 0.22 },
-          ];
-          for (const layer of layers) {
-            for (let bi=0; bi<14; bi++) {
-              const bx = cosmoCx + Math.sin(bi*1.7 + t*layer.speed + layer.hh*0.01) * cw * 0.38 * layer.scale;
-              const by = cosmoCy + Math.cos(bi*2.3 + t*layer.speed*0.7) * ch * 0.35 * layer.scale;
-              const br = (60 + Math.abs(Math.sin(bi*3.1+t*0.05))*120) * layer.scale * (1 + bass*0.5);
-              const bg2 = c.createRadialGradient(bx,by,0,bx,by,br);
-              bg2.addColorStop(0, `hsla(${layer.hh},90%,65%,${layer.alpha + bass*0.08})`);
-              bg2.addColorStop(0.5, `hsla(${(layer.hh+30)%360},80%,45%,${layer.alpha*0.5})`);
-              bg2.addColorStop(1, 'rgba(0,0,0,0)');
-              c.fillStyle=bg2; c.beginPath(); c.arc(bx,by,br,0,Math.PI*2); c.fill();
-            }
-          }
-          // embedded stars
-          for (let si=0; si<80; si++) {
-            const sx = (Math.sin(si*127.1)*0.5+0.5)*cw;
-            const sy = (Math.cos(si*311.7)*0.5+0.5)*ch;
-            const ss = 0.5 + Math.abs(Math.sin(si*7.3+t*2))*2*bass;
-            c.fillStyle=`rgba(255,255,255,${0.3+Math.abs(Math.sin(si+t))*0.6})`;
-            c.beginPath(); c.arc(sx,sy,ss,0,Math.PI*2); c.fill();
-          }
-
-        } else if (m === 38) {
-          // ── BLACK HOLE: gravitational lensing accretion disk ──────────────
-          c.fillStyle='rgba(0,0,4,0.35)'; c.fillRect(0,0,cw,ch);
-          const bhR = 28 + bass * 12;
-          const diskR = Math.min(cw,ch) * 0.38 * (1 + bass * 0.2);
-          // accretion disk rings
-          const diskRings = 60;
-          for (let ri=diskRings; ri>=0; ri--) {
-            const frac = ri / diskRings;
-            const r2 = bhR + frac * (diskR - bhR);
-            const hh = (hue + frac * 120 + t * 40) % 360;
-            const lit = 30 + frac * 50;
-            const alpha = (1 - frac) * 0.9 + bass * 0.1;
-            const wobble = Math.sin(frac * 8 + t * 3) * 0.25 + 1;
-            c.strokeStyle = `hsla(${hh},100%,${lit}%,${alpha * wobble})`;
-            c.lineWidth = 2 + (1-frac) * 6 + bass * 4;
-            c.beginPath();
-            // flattened ellipse for disk perspective
-            c.ellipse(cosmoCx, cosmoCy, r2, r2 * 0.28, t * 0.04, 0, Math.PI*2);
-            c.stroke();
-          }
-          // relativistic jet
-          for (let ji=0; ji<2; ji++) {
-            const jDir = ji === 0 ? -1 : 1;
-            const jLen = ch * 0.42 * (1 + bass * 0.6);
-            const jg = c.createLinearGradient(cosmoCx, cosmoCy, cosmoCx, cosmoCy + jDir * jLen);
-            jg.addColorStop(0, `hsla(${(hue+180)%360},100%,90%,${0.8+bass*0.2})`);
-            jg.addColorStop(0.4, `hsla(${(hue+160)%360},90%,65%,0.3)`);
-            jg.addColorStop(1, 'rgba(0,0,0,0)');
-            c.fillStyle=jg;
-            const jw = 4 + bass * 8;
-            c.beginPath();
-            c.moveTo(cosmoCx-jw, cosmoCy);
-            c.quadraticCurveTo(cosmoCx-jw*2, cosmoCy+jDir*jLen*0.5, cosmoCx, cosmoCy+jDir*jLen);
-            c.quadraticCurveTo(cosmoCx+jw*2, cosmoCy+jDir*jLen*0.5, cosmoCx+jw, cosmoCy);
-            c.fill();
-          }
-          // event horizon
-          c.fillStyle='#000'; c.beginPath(); c.arc(cosmoCx,cosmoCy,bhR,0,Math.PI*2); c.fill();
-          const ehG = c.createRadialGradient(cosmoCx,cosmoCy,bhR*0.7,cosmoCx,cosmoCy,bhR*1.8);
-          ehG.addColorStop(0,'rgba(0,0,0,1)'); ehG.addColorStop(1,'rgba(0,0,0,0)');
-          c.fillStyle=ehG; c.beginPath(); c.arc(cosmoCx,cosmoCy,bhR*1.8,0,Math.PI*2); c.fill();
-          // photon ring
-          c.strokeStyle=`hsla(${(hue+60)%360},100%,95%,${0.7+bass*0.3})`;
-          c.lineWidth = 1.5+bass*2;
-          c.beginPath(); c.arc(cosmoCx,cosmoCy,bhR*1.35,0,Math.PI*2); c.stroke();
-
-        } else if (m === 39) {
-          // ── AURORA: northern lights curtains ──────────────────────────────
-          c.fillStyle='rgba(0,2,10,0.25)'; c.fillRect(0,0,cw,ch);
-          const curtains = 5;
-          for (let ci=0; ci<curtains; ci++) {
-            const cx3 = (ci / curtains) * cw + (cw / curtains) * 0.5;
-            const hh = (160 + ci * 30 + hue * 0.4) % 360;
-            const bandW = cw / curtains * (0.7 + bass * 0.5);
-            const height = ch * (0.4 + mid * 0.4 + Math.abs(Math.sin(ci+t*0.3)) * 0.25);
-            const topY = ch * 0.08 + Math.sin(ci * 2.1 + t * 0.5) * ch * 0.1;
-            // multiple vertical wave columns per curtain
-            const cols5 = 12;
-            for (let wv=0; wv<cols5; wv++) {
-              const wx = cx3 - bandW/2 + (wv/cols5)*bandW;
-              const waveX = Math.sin(wv * 0.9 + t * 0.8 + ci) * 18 * bass;
-              const wh = height * (0.5 + Math.abs(Math.sin(wv*1.3+t*0.6+ci))*0.5);
-              const ag = c.createLinearGradient(wx+waveX, topY, wx+waveX, topY+wh);
-              ag.addColorStop(0, 'rgba(0,0,0,0)');
-              ag.addColorStop(0.15, `hsla(${hh},100%,70%,${0.12+bass*0.15})`);
-              ag.addColorStop(0.5, `hsla(${(hh+25)%360},90%,55%,${0.18+mid*0.12})`);
-              ag.addColorStop(0.85, `hsla(${(hh+50)%360},80%,40%,${0.08+bass*0.08})`);
-              ag.addColorStop(1, 'rgba(0,0,0,0)');
-              c.fillStyle=ag;
-              c.fillRect(wx+waveX-bandW/cols5, topY, bandW/cols5*1.5, wh);
-            }
-          }
-          // background stars
-          for (let si=0; si<120; si++) {
-            const sx = (Math.sin(si*93.7)*0.5+0.5)*cw;
-            const sy = (Math.cos(si*157.3)*0.5+0.5)*ch*0.65;
-            const ss2 = 0.4+Math.abs(Math.sin(si*3.7+t))*1.2;
-            c.fillStyle=`rgba(255,255,255,${0.2+Math.abs(Math.sin(si*2.1+t*0.5))*0.5})`;
-            c.beginPath(); c.arc(sx,sy,ss2,0,Math.PI*2); c.fill();
-          }
-          // faint ground glow
-          const groundG = c.createLinearGradient(0,ch*0.75,0,ch);
-          groundG.addColorStop(0,'rgba(0,0,0,0)');
-          groundG.addColorStop(1,`hsla(${(160+hue*0.2)%360},60%,8%,0.6)`);
-          c.fillStyle=groundG; c.fillRect(0,ch*0.75,cw,ch*0.25);
-        }
-      }
-
       }; // end renderScene
 
       // ── TRANSITION ENGINE ─────────────────────────────────────────────────
       const morphT = morphRef.current;
       const eased = morphT < 0.5 ? 2*morphT*morphT : 1-Math.pow(-2*morphT+2,2)/2;
 
-      // Drive purely off morphRef — immune to prevMode/curMode ref equality race
-      const isMorphing = morphT < 0.999;
-      // Once morph completes, sync prevMode so next transition has correct "from"
-      if (!isMorphing) prevModeRef.current = modeRef.current;
+      const isMorphing = morphRef.current < 0.999 && prevModeRef.current !== modeRef.current;
+      if (!isMorphing && prevModeRef.current !== modeRef.current) prevModeRef.current = modeRef.current;
 
       if (isMorphing) {
         renderScene(ctxB, prevModeRef.current); // OLD → bufB
         renderScene(ctxA, modeRef.current);     // NEW → bufA
 
-        const style = (transitionTypeRef.current) % 20;
+        const style = (transitionTypeRef.current) % 5;
 
         ctx.clearRect(0,0,cw,ch);
 
         if (style === 0) {
-          // ── CROSSFADE ─────────────────────────────────────────────────────
-          ctx.globalAlpha = 1;     ctx.drawImage(bufB, 0,0);
+          // ── CROSSFADE: simple alpha blend ──────────────────────────────────
+          ctx.globalAlpha = 1;   ctx.drawImage(bufB, 0,0);
           ctx.globalAlpha = eased; ctx.drawImage(bufA, 0,0);
           ctx.globalAlpha = 1;
 
         } else if (style === 1) {
-          // ── MORPHING: warp-dissolve ────────────────────────────────────────
+          // ── MORPHING: warp-dissolve — old shrinks/rotates out, new grows in ─
           ctx.save();
+          // old visual spinning out
           ctx.globalAlpha = 1 - eased;
           const sc1 = 1 - eased * 0.25;
           ctx.translate(cw/2, ch/2); ctx.rotate(eased * 0.4); ctx.scale(sc1, sc1);
           ctx.drawImage(bufB, -cw/2, -ch/2);
           ctx.restore();
+          // new visual growing in
           ctx.save();
           ctx.globalAlpha = eased;
           const sc2 = 0.75 + eased * 0.25;
@@ -1246,27 +880,30 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
           ctx.restore();
 
         } else if (style === 2) {
-          // ── SLICE WIPE: vertical slices reveal ────────────────────────────
+          // ── VISUAL TRANSITION: slice wipe — vertical slices reveal new ───────
           const slices = 20;
-          const sw2 = cw / slices;
+          const sw = cw / slices;
           for (let s=0; s<slices; s++) {
             const delay = (s / slices) * 0.4;
             const localT = Math.max(0, Math.min(1, (eased - delay) / 0.6));
             const smooth = localT < 0.5 ? 2*localT*localT : 1-Math.pow(-2*localT+2,2)/2;
-            const sx = s * sw2;
-            ctx.drawImage(bufB, sx, 0, sw2, ch, sx, ch * smooth, sw2, ch);
-            ctx.drawImage(bufA, sx, 0, sw2, ch, sx, -ch * (1-smooth), sw2, ch);
+            const sx = s * sw;
+            // old slice slides down
+            ctx.drawImage(bufB, sx, 0, sw, ch, sx, ch * smooth, sw, ch);
+            // new slice slides in from top
+            ctx.drawImage(bufA, sx, 0, sw, ch, sx, -ch * (1-smooth), sw, ch);
           }
 
         } else if (style === 3) {
-          // ── PIXEL REVEAL: radial checker ──────────────────────────────────
+          // ── INTERPOLATION: pixel-grid lerp — checker pattern reveals ─────────
           ctx.drawImage(bufB, 0,0);
           const gridSize = 6;
           const cols2 = Math.ceil(cw / gridSize), rows2 = Math.ceil(ch / gridSize);
           for (let r=0; r<rows2; r++) {
             for (let c2=0; c2<cols2; c2++) {
+              // each cell has a staggered reveal time based on distance from center
               const dx = (c2/cols2 - 0.5), dy = (r/rows2 - 0.5);
-              const dist = Math.sqrt(dx*dx+dy*dy) * 1.4;
+              const dist = Math.sqrt(dx*dx+dy*dy) * 1.4; // 0–1
               const localT = Math.max(0, Math.min(1, (eased * 1.8) - dist));
               if (localT > 0) {
                 ctx.globalAlpha = localT;
@@ -1277,21 +914,25 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
           }
           ctx.globalAlpha = 1;
 
-        } else if (style === 4) {
-          // ── RIPPLE DISSOLVE: liquid wave warp ────────────────────────────
+        } else {
+          // ── METAMORPHOSIS: liquid ripple dissolve ─────────────────────────────
+          // draw old frame normally
           ctx.globalAlpha = 1 - eased;
           ctx.drawImage(bufB, 0,0);
           ctx.globalAlpha = 1;
+          // draw new frame with per-row wave displacement (ripple warp)
           const tmpC = document.createElement('canvas');
           tmpC.width = cw; tmpC.height = ch;
           const tmpX = tmpC.getContext('2d')!;
-          for (let y2=0; y2<ch; y2+=3) {
+          const rowH = 3;
+          for (let y2=0; y2<ch; y2+=rowH) {
             const wave = Math.sin(y2 * 0.03 + t * 6) * (1-eased) * 40;
-            tmpX.drawImage(bufA, 0, y2, cw, 3, wave, y2, cw, 3);
+            tmpX.drawImage(bufA, 0, y2, cw, rowH, wave, y2, cw, rowH);
           }
           ctx.globalAlpha = eased;
           ctx.drawImage(tmpC, 0,0);
           ctx.globalAlpha = 1;
+          // color aberration fringe during mid-transition
           if (eased > 0.2 && eased < 0.8) {
             const fringe = Math.sin(eased * Math.PI) * 8;
             ctx.globalCompositeOperation = 'screen';
@@ -1301,364 +942,6 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
             ctx.globalCompositeOperation = 'source-over';
             ctx.globalAlpha = 1;
           }
-
-        } else if (style === 5) {
-          // ── ZOOM BURST: old explodes outward, new zooms in from tiny ──────
-          ctx.save();
-          ctx.globalAlpha = 1 - eased;
-          const zsc1 = 1 + eased * 0.6;
-          ctx.translate(cw/2, ch/2); ctx.scale(zsc1, zsc1);
-          ctx.drawImage(bufB, -cw/2, -ch/2);
-          ctx.restore();
-          ctx.save();
-          ctx.globalAlpha = eased;
-          const zsc2 = 0.4 + eased * 0.6;
-          ctx.translate(cw/2, ch/2); ctx.scale(zsc2, zsc2);
-          ctx.drawImage(bufA, -cw/2, -ch/2);
-          ctx.restore();
-
-        } else if (style === 6) {
-          // ── SHATTER: triangular tiles scatter away ────────────────────────
-          ctx.drawImage(bufB, 0,0);
-          const tileW = cw / 8, tileH = ch / 5;
-          for (let tr=0; tr<5; tr++) {
-            for (let tc2=0; tc2<8; tc2++) {
-              const delay = ((tr+tc2) / 13) * 0.5;
-              const localT = Math.max(0, Math.min(1, (eased - delay) / 0.5));
-              if (localT <= 0) continue;
-              const tx2 = tc2 * tileW, ty2 = tr * tileH;
-              const cx2 = tx2 + tileW/2, cy2 = ty2 + tileH/2;
-              const angle = Math.atan2(cy2 - ch/2, cx2 - cw/2);
-              const dist2 = localT * localT * 120;
-              ctx.save();
-              ctx.globalAlpha = 1 - localT;
-              ctx.translate(cx2 + Math.cos(angle)*dist2, cy2 + Math.sin(angle)*dist2);
-              ctx.rotate(localT * 0.8);
-              ctx.drawImage(bufB, tx2, ty2, tileW, tileH, -tileW/2, -tileH/2, tileW, tileH);
-              ctx.restore();
-              ctx.save();
-              ctx.globalAlpha = localT;
-              ctx.drawImage(bufA, tx2, ty2, tileW, tileH, tx2, ty2, tileW, tileH);
-              ctx.restore();
-            }
-          }
-
-        } else if (style === 7) {
-          // ── IRIS: circular reveal from centre ────────────────────────────
-          ctx.drawImage(bufB, 0,0);
-          const maxR2 = Math.sqrt(cw*cw + ch*ch) / 2;
-          const irisR = eased * maxR2 * 1.05;
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(cw/2, ch/2, irisR, 0, Math.PI*2);
-          ctx.clip();
-          ctx.drawImage(bufA, 0,0);
-          ctx.restore();
-          // soft edge
-          const irg = ctx.createRadialGradient(cw/2, ch/2, irisR*0.85, cw/2, ch/2, irisR);
-          irg.addColorStop(0, 'rgba(0,0,0,0)');
-          irg.addColorStop(1, 'rgba(0,0,0,0.6)');
-          ctx.fillStyle = irg;
-          ctx.beginPath(); ctx.arc(cw/2, ch/2, irisR, 0, Math.PI*2); ctx.fill();
-
-        } else if (style === 8) {
-          // ── DIAGONAL WIPE: NW→SE reveal ──────────────────────────────────
-          ctx.drawImage(bufB, 0,0);
-          const diagOffset = eased * (cw + ch) * 1.1 - ch;
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(0, diagOffset);
-          ctx.lineTo(diagOffset + ch, 0);
-          ctx.lineTo(cw, 0);
-          ctx.lineTo(cw, ch);
-          ctx.lineTo(0, ch);
-          ctx.closePath();
-          ctx.clip();
-          ctx.drawImage(bufA, 0,0);
-          ctx.restore();
-
-        } else if (style === 9) {
-          // ── GLITCH: RGB channel split + scanline flicker ─────────────────
-          const phase = morphT;
-          // base old frame fading
-          ctx.globalAlpha = Math.max(0, 1 - eased * 1.5);
-          ctx.drawImage(bufB, 0,0);
-          ctx.globalAlpha = 1;
-          // new frame with RGB channel separation
-          const glitchAmt = Math.sin(phase * Math.PI) * 18;
-          ctx.save();
-          ctx.globalCompositeOperation = 'screen';
-          ctx.globalAlpha = eased * 0.6;
-          // red channel shifted left
-          ctx.fillStyle = 'rgba(255,0,0,0.15)';
-          ctx.drawImage(bufA, -glitchAmt, 0);
-          // blue channel shifted right
-          ctx.fillStyle = 'rgba(0,0,255,0.15)';
-          ctx.drawImage(bufA, glitchAmt, 0);
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.restore();
-          // composited new frame
-          ctx.globalAlpha = eased;
-          ctx.drawImage(bufA, 0,0);
-          ctx.globalAlpha = 1;
-          // scanline flicker overlay
-          if (eased < 0.85) {
-            for (let sl=0; sl<ch; sl+=4) {
-              if (Math.random() < 0.08 * (1 - eased)) {
-                ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.07})`;
-                ctx.fillRect(0, sl, cw, 2);
-              }
-            }
-          }
-
-        } else if (style === 10) {
-          // ── PAGE TURN: right edge curls over like a book page ─────────────
-          ctx.drawImage(bufB, 0,0);
-          const curl = eased * cw;
-          // shadow on old page
-          const shadowG = ctx.createLinearGradient(cw - curl - 40, 0, cw - curl + 20, 0);
-          shadowG.addColorStop(0, 'rgba(0,0,0,0)');
-          shadowG.addColorStop(1, 'rgba(0,0,0,0.4)');
-          ctx.fillStyle = shadowG;
-          ctx.fillRect(cw - curl - 40, 0, 60, ch);
-          // new page revealed underneath
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, cw - curl, ch);
-          ctx.clip();
-          ctx.drawImage(bufA, 0, 0);
-          ctx.restore();
-          // curling page face (old content, compressed)
-          if (curl < cw) {
-            ctx.save();
-            ctx.translate(cw - curl, 0);
-            ctx.scale(-curl / cw * 0.15 + 1, 1);
-            ctx.globalAlpha = 1 - eased * 0.5;
-            ctx.drawImage(bufB, 0, 0, cw, ch, 0, 0, cw, ch);
-            // page edge highlight
-            const edgeG = ctx.createLinearGradient(0, 0, 8, 0);
-            edgeG.addColorStop(0, 'rgba(255,255,255,0.6)');
-            edgeG.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.fillStyle = edgeG;
-            ctx.fillRect(0, 0, 8, ch);
-            ctx.restore();
-          }
-
-        } else if (style === 11) {
-          // ── KALEIDOSCOPE: rotational symmetry morph ───────────────────────
-          const seg = 6;
-          ctx.save();
-          ctx.translate(cw/2, ch/2);
-          for (let ki=0; ki<seg; ki++) {
-            ctx.save();
-            ctx.rotate((ki / seg) * Math.PI * 2 + eased * Math.PI);
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            const ka = Math.PI * 2 / seg;
-            ctx.arc(0, 0, Math.max(cw, ch), -ka/2, ka/2);
-            ctx.closePath();
-            ctx.clip();
-            const kscale = 0.5 + eased * 0.5;
-            ctx.scale(kscale, kscale);
-            ctx.globalAlpha = ki % 2 === 0 ? 1 - eased * 0.5 : eased;
-            ctx.drawImage(ki % 2 === 0 ? bufB : bufA, -cw/2, -ch/2);
-            ctx.restore();
-          }
-          ctx.restore();
-
-        } else if (style === 12) {
-          // ── BURN: fire-like erosion from random bright pixels ─────────────
-          ctx.drawImage(bufB, 0,0);
-          // fire reveal: rows burn from bottom, staggered by column noise
-          const rows = 40;
-          const rowH2 = ch / rows;
-          for (let br=rows-1; br>=0; br--) {
-            const rowProgress = (eased * 1.4) - (br / rows) * 0.4;
-            const localT = Math.max(0, Math.min(1, rowProgress));
-            if (localT <= 0) continue;
-            const y2 = br * rowH2;
-            ctx.globalAlpha = localT;
-            ctx.drawImage(bufA, 0, y2, cw, rowH2, 0, y2, cw, rowH2);
-            // fire edge glow
-            if (localT < 0.85) {
-              const fireH = rowH2 * 1.5;
-              const fireG = ctx.createLinearGradient(0, y2 - fireH, 0, y2 + rowH2);
-              fireG.addColorStop(0, 'rgba(255,140,0,0)');
-              fireG.addColorStop(0.5, `rgba(255,80,0,${(1-localT)*0.7})`);
-              fireG.addColorStop(1, 'rgba(255,200,0,0)');
-              ctx.globalAlpha = 1;
-              ctx.fillStyle = fireG;
-              ctx.fillRect(0, y2 - fireH, cw, rowH2 + fireH);
-            }
-          }
-          ctx.globalAlpha = 1;
-
-        } else if (style === 13) {
-          // ── MATRIX RAIN: digital green characters fall to reveal ──────────
-          ctx.drawImage(bufB, 0,0);
-          const cols3 = Math.ceil(cw / 16);
-          for (let mc=0; mc<cols3; mc++) {
-            const colDelay = (mc / cols3) * 0.5;
-            const colT = Math.max(0, Math.min(1, (eased - colDelay) / 0.5));
-            if (colT <= 0) continue;
-            const revealY = colT * ch;
-            // reveal new frame in this column strip
-            ctx.globalAlpha = colT;
-            ctx.drawImage(bufA, mc*16, 0, 16, revealY, mc*16, 0, 16, revealY);
-            ctx.globalAlpha = 1;
-            // falling character at the frontier
-            if (colT < 0.98) {
-              ctx.font = 'bold 12px monospace';
-              ctx.fillStyle = `rgba(74,222,128,${0.9 * (1-colT) + 0.1})`;
-              const charY = revealY;
-              for (let cr=0; cr<6; cr++) {
-                ctx.globalAlpha = Math.max(0, (1 - cr * 0.18)) * (1 - colT * 0.5);
-                ctx.fillText(String.fromCharCode(0x30A0 + Math.floor(Math.random()*96)), mc*16, charY - cr*14);
-              }
-              ctx.globalAlpha = 1;
-            }
-          }
-
-        } else if (style === 14) {
-          // ── VORTEX: spiral spin-pull into centre, new spins out ───────────
-          ctx.drawImage(bufB, 0,0);
-          ctx.save();
-          ctx.translate(cw/2, ch/2);
-          // old frame spirals inward
-          const vAngle = eased * Math.PI * 3;
-          const vScale = 1 - eased * 0.85;
-          ctx.rotate(vAngle);
-          ctx.scale(vScale, vScale);
-          ctx.globalAlpha = 1 - eased;
-          ctx.drawImage(bufB, -cw/2, -ch/2);
-          ctx.restore();
-          // new frame spirals out from centre
-          ctx.save();
-          ctx.translate(cw/2, ch/2);
-          const vAngle2 = (eased - 1) * Math.PI * 2;
-          const vScale2 = eased;
-          ctx.rotate(vAngle2);
-          ctx.scale(vScale2, vScale2);
-          ctx.globalAlpha = eased;
-          ctx.drawImage(bufA, -cw/2, -ch/2);
-          ctx.restore();
-
-        } else if (style === 15) {
-          // ── TV STATIC: white noise blanket then new image emerges ─────────
-          const staticPhase = Math.sin(eased * Math.PI); // peaks at midpoint
-          ctx.globalAlpha = 1 - Math.min(eased * 2, 1);
-          ctx.drawImage(bufB, 0,0);
-          ctx.globalAlpha = Math.max(0, eased * 2 - 1);
-          ctx.drawImage(bufA, 0,0);
-          ctx.globalAlpha = 1;
-          // static noise layer
-          if (staticPhase > 0.05) {
-            const noiseData = ctx.createImageData(cw, ch);
-            const d = noiseData.data;
-            for (let ni=0; ni<d.length; ni+=4) {
-              const v2 = Math.random() * 255;
-              d[ni]=v2; d[ni+1]=v2; d[ni+2]=v2;
-              d[ni+3] = staticPhase * 220;
-            }
-            ctx.putImageData(noiseData, 0, 0);
-          }
-
-        } else if (style === 16) {
-          // ── MOSAIC: tiles grow from random seeds ──────────────────────────
-          ctx.drawImage(bufB, 0,0);
-          const tileSize = Math.max(4, Math.floor(80 * (1 - eased)));
-          const cols4 = Math.ceil(cw / tileSize);
-          const rows4 = Math.ceil(ch / tileSize);
-          for (let mr=0; mr<rows4; mr++) {
-            for (let mc2=0; mc2<cols4; mc2++) {
-              // hash-based per-tile delay
-              const hash = ((mr * 1973 + mc2 * 9001) % 100) / 100;
-              const localT = Math.max(0, Math.min(1, (eased * 1.5) - hash * 0.5));
-              if (localT <= 0) continue;
-              ctx.globalAlpha = localT;
-              ctx.drawImage(bufA, mc2*tileSize, mr*tileSize, tileSize, tileSize,
-                                  mc2*tileSize, mr*tileSize, tileSize, tileSize);
-            }
-          }
-          ctx.globalAlpha = 1;
-
-        } else if (style === 17) {
-          // ── SHOCKWAVE: radial ring sweeps outward revealing new ───────────
-          ctx.drawImage(bufB, 0,0);
-          const maxRad = Math.sqrt(cw*cw + ch*ch) / 2 * 1.1;
-          const waveRad = eased * maxRad;
-          const waveW = maxRad * 0.25;
-          // revealed area inside wave
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(cw/2, ch/2, Math.max(0, waveRad - waveW), 0, Math.PI*2);
-          ctx.clip();
-          ctx.drawImage(bufA, 0, 0);
-          ctx.restore();
-          // bright shockwave ring
-          if (waveRad > 0 && waveRad < maxRad + waveW) {
-            const ringG = ctx.createRadialGradient(cw/2,ch/2, Math.max(0,waveRad-waveW), cw/2,ch/2, waveRad+8);
-            ringG.addColorStop(0, 'rgba(255,255,255,0)');
-            ringG.addColorStop(0.6, `rgba(255,255,255,${0.7 * (1-eased*0.5)})`);
-            ringG.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.fillStyle = ringG;
-            ctx.beginPath(); ctx.arc(cw/2,ch/2,waveRad+8,0,Math.PI*2); ctx.fill();
-          }
-
-        } else if (style === 18) {
-          // ── INK BLEED: dark ink spreads and dissolves into new ────────────
-          ctx.drawImage(bufB, 0,0);
-          // multiple ink blob origins
-          const blobs = [{x:0.3,y:0.4},{x:0.7,y:0.6},{x:0.5,y:0.2},{x:0.2,y:0.8},{x:0.8,y:0.3}];
-          blobs.forEach((b, bi) => {
-            const delay = bi * 0.1;
-            const localT = Math.max(0, Math.min(1, (eased - delay) / 0.7));
-            if (localT <= 0) return;
-            const bRad = localT * Math.max(cw, ch) * 0.65;
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(b.x * cw, b.y * ch, bRad, 0, Math.PI*2);
-            ctx.clip();
-            ctx.globalAlpha = localT;
-            ctx.drawImage(bufA, 0,0);
-            // dark ink halo at edge
-            const inkG = ctx.createRadialGradient(b.x*cw, b.y*ch, bRad*0.8, b.x*cw, b.y*ch, bRad);
-            inkG.addColorStop(0, 'rgba(0,0,0,0)');
-            inkG.addColorStop(1, `rgba(0,0,0,${0.5 * (1-localT)})`);
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = inkG;
-            ctx.fillRect(0,0,cw,ch);
-            ctx.restore();
-          });
-
-        } else if (style === 19) {
-          // ── FILM BURN: bright overexposure with film grain ────────────────
-          ctx.globalAlpha = 1 - eased;
-          ctx.drawImage(bufB, 0,0);
-          ctx.globalAlpha = eased;
-          ctx.drawImage(bufA, 0,0);
-          ctx.globalAlpha = 1;
-          // white flash peak at midpoint
-          const flashPeak = Math.sin(eased * Math.PI);
-          if (flashPeak > 0.05) {
-            ctx.fillStyle = `rgba(255,245,200,${flashPeak * 0.75})`;
-            ctx.fillRect(0,0,cw,ch);
-          }
-          // film grain
-          if (flashPeak > 0.1) {
-            for (let fg=0; fg<300; fg++) {
-              const gx = Math.random() * cw, gy = Math.random() * ch;
-              const gs = Math.random() * 3;
-              ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.3 * flashPeak})`;
-              ctx.fillRect(gx, gy, gs, gs);
-            }
-          }
-          // vignette darkening at edges
-          const vigG = ctx.createRadialGradient(cw/2,ch/2, ch*0.3, cw/2,ch/2, ch*0.75);
-          vigG.addColorStop(0, 'rgba(0,0,0,0)');
-          vigG.addColorStop(1, `rgba(0,0,0,${flashPeak * 0.4})`);
-          ctx.fillStyle = vigG;
-          ctx.fillRect(0,0,cw,ch);
         }
 
       } else {
@@ -1680,6 +963,8 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
         eqCtx.fillStyle=`hsl(${(hue+i*3.5)%360},85%,${48+v*22}%)`;
         eqCtx.fillRect(i*bw2+.5,eh-bh,bw2-1,bh);
       }
+
+      rafRef.current = requestAnimationFrame(draw);
     };
 
     // Delay one frame so canvas parent has laid out and has non-zero dimensions
@@ -1689,18 +974,18 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
     }, 150);
     // second resize pass in case first was too early
     const resizeTimer = setTimeout(resize, 400);
-    return ()=>{ clearTimeout(startTimer); clearTimeout(resizeTimer); cancelAnimationFrame(rafRef.current); window.removeEventListener('resize',resize); };
+    return ()=>{ clearTimeout(startTimer); clearTimeout(resizeTimer); cancelAnimationFrame(rafRef.current); ro.disconnect(); window.removeEventListener('resize',resize); };
   },[]);
 
   const currentGroupIdx = VIZ_GROUPS.findIndex(g=>g.modes.includes(ALL_MODES[mode]));
 
   return (
-    <div className="viz-root absolute inset-0 overflow-hidden" style={{background:'transparent',pointerEvents:'none'}} onMouseMove={resetIdleTimer}>
+    <div className="viz-root absolute inset-0 overflow-hidden pointer-events-none" style={{background:'transparent'}}>
       <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:active?1:0,pointerEvents:'none'}}/>
       <canvas ref={eqRef} style={{position:'absolute',bottom:0,left:0,right:0,width:'100%',height:56,pointerEvents:'none',opacity:active?1:0}}/>
 
-      {/* ── visualizer group/mode picker — hides after 3s of no mouse activity ── */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1" style={{zIndex:100,opacity:pickerVisible?1:0,transition:'opacity 0.5s ease',pointerEvents:pickerVisible?'auto':'none'}} onClick={e=>e.stopPropagation()}>
+      {/* ── visualizer group/mode picker — always visible ── */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1" style={{zIndex:100,pointerEvents:'auto'}} onClick={e=>e.stopPropagation()}>
         {VIZ_GROUPS.map((g,gi)=>(
           <div key={g.group} className="relative">
             <button
@@ -1731,45 +1016,30 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
           <div className={`w-1.5 h-1.5 rounded-full transition-all ${autoOn?'bg-yellow-300 animate-pulse':'bg-slate-600'}`}/>
           <span className="text-[8px] font-black uppercase tracking-widest">Auto</span>
         </button>
-        {/* Transition style picker — only visible when Auto is on */}
-        {autoOn && (() => {
-          const isAuto = transitionStyle === -1;
-          const activeTs = isAuto ? AUTO_TRANSITION : TRANSITION_STYLES[transitionStyle];
-          return (
-            <div className="relative ml-1">
-              <button onClick={e=>{e.stopPropagation();setTransitionOpen(p=>!p);}}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-all bg-black/60 border-white/10 text-slate-400 hover:text-white hover:border-white/20"
-                style={transitionOpen?{borderColor:'rgba(255,255,255,0.2)'}:{}}
-                title="Transition style">
-                <i className="fa-solid fa-film text-[8px]"/>
-                <span className="text-[8px] font-black uppercase tracking-wider hidden sm:inline">
-                  Transitions
-                </span>
-              </button>
-              {transitionOpen&&(
-                <div className="absolute top-full mt-1 right-0 bg-black/95 border border-white/10 rounded-xl p-1.5 flex flex-col gap-0.5 min-w-[160px] z-30 shadow-2xl" onClick={e=>e.stopPropagation()}>
-                  {/* Auto — always at top */}
-                  <button onClick={()=>{setTransitionStyle(-1);setTransitionOpen(false);}}
-                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest text-left transition-all ${isAuto?'text-white':'text-slate-500 hover:text-white hover:bg-white/5'}`}
-                    style={isAuto?{background:AUTO_TRANSITION.color+'22',color:AUTO_TRANSITION.color}:{}}>
-                    <i className={`fa-solid ${AUTO_TRANSITION.icon} text-[9px]`} style={isAuto?{color:AUTO_TRANSITION.color}:{}}/>
-                    {AUTO_TRANSITION.name}
-                  </button>
-                  {/* divider */}
-                  <div className="h-px bg-white/10 my-0.5"/>
-                  {TRANSITION_STYLES.map((ts,ti)=>(
-                    <button key={ts.name} onClick={()=>{setTransitionStyle(ti);setTransitionOpen(false);}}
-                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest text-left transition-all ${transitionStyle===ti?'text-white':'text-slate-500 hover:text-white hover:bg-white/5'}`}
-                      style={transitionStyle===ti?{background:ts.color+'22',color:ts.color}:{}}>
-                      <i className={`fa-solid ${ts.icon} text-[9px]`} style={transitionStyle===ti?{color:ts.color}:{}}/>
-                      {ts.name}
-                    </button>
-                  ))}
-                </div>
-              )}
+        {/* Transition style picker */}
+        <div className="relative ml-1">
+          <button onClick={e=>{e.stopPropagation();setTransitionOpen(p=>!p);}}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-all bg-black/60 border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+            style={transitionOpen?{borderColor:TRANSITION_STYLES[transitionStyle].color+'60',color:TRANSITION_STYLES[transitionStyle].color}:{}}
+            title="Transition style">
+            <i className={`fa-solid ${TRANSITION_STYLES[transitionStyle].icon} text-[8px]`} style={{color:TRANSITION_STYLES[transitionStyle].color}}/>
+            <span className="text-[8px] font-black uppercase tracking-wider hidden sm:inline" style={{color:TRANSITION_STYLES[transitionStyle].color}}>
+              {TRANSITION_STYLES[transitionStyle].name}
+            </span>
+          </button>
+          {transitionOpen&&(
+            <div className="absolute top-full mt-1 right-0 bg-black/95 border border-white/10 rounded-xl p-1.5 flex flex-col gap-0.5 min-w-[150px] z-30 shadow-2xl" onClick={e=>e.stopPropagation()}>
+              {TRANSITION_STYLES.map((ts,ti)=>(
+                <button key={ts.name} onClick={()=>{setTransitionStyle(ti);setTransitionOpen(false);}}
+                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest text-left transition-all ${transitionStyle===ti?'text-white':'text-slate-500 hover:text-white hover:bg-white/5'}`}
+                  style={transitionStyle===ti?{background:ts.color+'22',color:ts.color}:{}}>
+                  <i className={`fa-solid ${ts.icon} text-[9px]`} style={transitionStyle===ti?{color:ts.color}:{}}/>
+                  {ts.name}
+                </button>
+              ))}
             </div>
-          );
-        })()}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1912,33 +1182,8 @@ const MusicPlaylistButton: React.FC<{
 };
 
 
-// ─── Track sanitisation — fixes iframe HTML stored as URL/artist/title ──────
-const sanitiseTrack = (tr: any) => {
-  let url = tr.url||'';
-  const iframeSrc = url.match(/src=["']([^"']+)["']/i);
-  if (iframeSrc) url = iframeSrc[1];
-  // Fix double slashes e.g. https://audiomack.com//sakaturu/...
-  // Fix double slashes anywhere in the URL after the protocol
-  url = url.replace(/^(https?:\/\/)/, '@@PROTO@@').replace(/\/\/+/g, '/').replace('@@PROTO@@', 'https://');
-  // Remove /embed/ path (we re-add it in getEmbedUrl correctly)
-  if (url.includes('audiomack.com/embed/') && !url.includes('?src=')) {
-    url = url.replace('audiomack.com/embed/', 'audiomack.com/');
-  }
-  const isBad = (s:string) => !s || /iframe/i.test(s) || s.startsWith('<') || s.toLowerCase().includes('src=');
-  let artist = (tr.artist||'').replace(/<[^>]+>/g,'').replace(/src=["'][^"']+["']/gi,'').trim();
-  let title  = (tr.title||'').replace(/<[^>]+>/g,'').replace(/src=["'][^"']+["']/gi,'').trim();
-  if (url.includes('audiomack.com') && (isBad(artist) || isBad(title))) {
-    const parts = url.replace(/[?#].*$/,'').replace(/https?:\/\/audiomack\.com\/(?:embed\/)?/,'').split('/').filter(Boolean);
-    const toT = (s:string) => s.replace(/-/g,' ').replace(/\b\w/g,(c:string)=>c.toUpperCase());
-    if (parts[0]) artist = toT(parts[0]);
-    if (parts[2]) title  = toT(parts[2]);
-  }
-  title = (title||'').replace(/,?\s+by\s+.+$/i,'').trim()||title;
-  return {...tr, url, artist, title};
-};
-
 const MusicApp: React.FC<MusicAppProps> = ({
-  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{}, onOpenUserPlaylist=()=>{}, onPendingReview=()=>{}, onUserChange=(_u:string,_l:boolean)=>{},
+  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{}, onOpenUserPlaylist=()=>{}, onPendingReview=()=>{},
 }) => {
   // ── Identity: read/write same keys as APP.tsx ─────────────────────────────
   const [currentUser,  setCurrentUser]  = useState<string>(()=> localStorage.getItem(USER_KEY) || currentUserProp);
@@ -1971,14 +1216,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
     if(identifyPic) setUserPic(name, identifyPic);
     setPicVersion(v => v+1);
     window.dispatchEvent(new Event('picUpdated'));
-    onUserChange(name, true);
     setShowIdentify(false);
     setIdentifyName(''); setIdentifyErr('');
   };
   const handleIdentifyLogout = () => {
     setIsUserLocked(false);
     localStorage.removeItem(USER_LOCKED_KEY);
-    onUserChange(MASTER_IDENTITY, false);
     onLogout();
   };
 
@@ -2029,17 +1272,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
   };
   const [genres,     setGenres]     = useState<string[]>(()=>{const s=localStorage.getItem(MUSIC_GENRES_KEY);return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;});
   const [genreColors,setGenreColors]= useState<Record<string,string>>(()=>{const s=localStorage.getItem('integral_music_genre_colors_v1');return s?JSON.parse(s):{...DEFAULT_GENRE_COLORS};});
-  const [tracks, setTracks] = useState<MusicTrack[]>(()=>{
-    const s=localStorage.getItem(SHARED_MUSIC_KEY);
-    const t=s?JSON.parse(s):[];
-    return t.map(sanitiseTrack);
-  });;
+  const [tracks, setTracks] = useState<MusicTrack[]>(()=>{const s=localStorage.getItem(SHARED_MUSIC_KEY);const t=s?JSON.parse(s):[];return t.map((tr:any)=>({...tr,title:(tr.title||'').replace(/,?\s+by\s+.+$/i,'').trim()||tr.title}));});
   const [reviews,    setReviews]    = useState<MusicReview[]>(()=>{const s=localStorage.getItem(MUSIC_REVIEWS_KEY);return s?JSON.parse(s):[];});
 
   const [currentTrackId, setCurrentTrackId] = useState<string|undefined>();
   const [isPlaying,  setIsPlaying]  = useState(false);
   const [activeTab,  setActiveTab]  = useState('All');
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [search,     setSearch]     = useState('');
   const [showAddForm,setShowAddForm]= useState(false);
   const [showAddGenreForm,setShowAddGenreForm]=useState(false);
@@ -2052,15 +1290,10 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [formUrl,    setFormUrl]    = useState('');
   const [formArtist, setFormArtist] = useState('');
   const [formTitle,  setFormTitle]  = useState('');
-  const [formFetching, setFormFetching] = useState(false);
   const [formCategory,setFormCategory]=useState(()=>{const s=localStorage.getItem(MUSIC_GENRES_KEY);const g=s?JSON.parse(s):DEFAULT_MUSIC_GENRES;return g[0]||'Other';});
   const [newGenre,   setNewGenre]   = useState('');
   const [newGenreColor,setNewGenreColor]=useState(COLOR_PALETTE[0][0]);
   const [confirmDeleteId,setConfirmDeleteId]=useState<string|null>(null);
-  const [editingTrackId,setEditingTrackId]=useState<string|null>(null);
-  const [editArtist,setEditArtist]=useState('');
-  const [editTitle,setEditTitle]=useState('');
-  const [editCategory,setEditCategory]=useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [queueTab,   setQueueTab]   = useState<'All'|'Queue'>('All');
   const [showVisualizer, setShowVisualizer] = useState(false);
@@ -2070,20 +1303,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [vizAutoStart, setVizAutoStart] = useState(false);
 
   // ── Firestore: load music on mount ──────────────────────────────────────────
-  const cleanTitle = (t: any) => sanitiseTrack(t);
+  const cleanTitle = (t: any) => ({...t, title: (t.title||'').replace(/,?\s+by\s+.+$/i,'').trim()||t.title});
   useEffect(()=>{
     loadMusicFromFirestore().then(remote => {
       if (remote && remote.length > 0) {
-        const cleaned = remote.map(sanitiseTrack);
+        const cleaned = remote.map(cleanTitle);
         setTracks(cleaned);
         try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(cleaned)); } catch {}
-        // Immediately overwrite bad data in Firestore
-        const hadBadData = remote.some((tr:any) => {
-          const url = tr.url||'';
-          return url.includes('<') || url.includes('iframe') ||
-                 (tr.artist||'').includes('<') || (tr.title||'').toLowerCase() === 'song';
-        });
-        if (hadBadData) saveMusicToFirestore(cleaned);
       }
     });
     loadMusicReviewsFromFirestore().then(remote => {
@@ -2094,29 +1320,19 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      const cleaned = remote.map(sanitiseTrack);
+      const cleaned = remote.map(cleanTitle);
       setTracks(cleaned);
       try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(cleaned)); } catch {}
-      // If any track was corrupted, immediately save clean version back to Firestore
-      const hadBadData = remote.some((tr:any) => {
-        const url = tr.url||'';
-        return url.includes('<') || url.includes('iframe') ||
-               (tr.artist||'').includes('<') || (tr.title||'').toLowerCase() === 'song';
-      });
-      if (hadBadData) {
-        setTimeout(() => saveMusicToFirestore(cleaned), 100);
-      }
     });
     return () => { unsubTracks(); };
   }, []);
 
   // ── Firestore: save music on change (debounced 1.5s) ─────────────────────
   useEffect(()=>{
-    const clean = tracks.map(sanitiseTrack);
-    const t = setTimeout(()=>{ saveMusicToFirestore(clean); }, 1500);
+    const t = setTimeout(()=>{ saveMusicToFirestore(tracks); }, 1500);
     // Also keep localStorage in sync as fallback
     try {
-      const stripped = clean.map((t:any)=>({...t, thumbnail: t.thumbnail?.startsWith('data:') ? '' : (t.thumbnail||'')}));
+      const stripped = tracks.map(t=>({...t, thumbnail: t.thumbnail?.startsWith('data:') ? '' : (t.thumbnail||'')}));
       localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(stripped));
     } catch {}
     return ()=> clearTimeout(t);
@@ -2133,15 +1349,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [userTracks, setUserTracks] = useState<MusicTrack[]>(()=>{
     try {
       const user = localStorage.getItem(USER_KEY) || currentUser;
-      const raw = JSON.parse(localStorage.getItem(`integral_user_tracks_${user}`)||'[]');
-      return raw.map((tr:any) => {
-        const t = sanitiseTrack(tr);
-        // Clear YouTube thumbnails wrongly assigned to AudioMack tracks
-        if (t.url.includes('audiomack.com') && (t.thumbnail||'').includes('ytimg.com')) {
-          return {...t, thumbnail: ''};
-        }
-        return t;
-      });
+      return JSON.parse(localStorage.getItem(`integral_user_tracks_${user}`)||'[]');
     } catch { return []; }
   });
   const saveUserTracks = (tracks: MusicTrack[]) => {
@@ -2156,19 +1364,18 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const filteredTracks=useMemo(()=>tracks.filter(t=>{
     if(t.addedBy) return false;
     if(activeTab==='Vault')return t.isFavorite;
-    if(activeTab!=='All') return false;
-    if(selectedGenres.length>0&&!selectedGenres.includes(t.category)) return false;
+    if(activeTab!=='All'&&t.category!==activeTab)return false;
     return search===''||t.artist.toLowerCase().includes(search.toLowerCase())||t.title.toLowerCase().includes(search.toLowerCase());
-  }),[tracks,activeTab,selectedGenres,search]);
+  }),[tracks,activeTab,search]);
 
   const pendingReviews=useMemo(()=>reviews.filter(r=>!r.approved),[reviews]);
   const approvedReviews=useMemo(()=>reviews.filter(r=>r.approved),[reviews]);
-  const allTabs=useMemo(()=>[{name:'All'},{name:'Vault'},...[...genres].sort((a,b)=>a.localeCompare(b)).map(g=>({name:g}))]  ,[genres]);
+  const allTabs=useMemo(()=>[{name:'All'},{name:'Vault'},...genres.map(g=>({name:g}))]  ,[genres]);
   const firstRowTabs=useMemo(()=>allTabs.slice(0,4),[allTabs]);
   const overflowTabs=useMemo(()=>allTabs.slice(4),[allTabs]);
 
   const getTabColor =(n:string)=>n==='All'?'#f8fafc':n==='Vault'?'#ff3b3b':genreColors[n]||'#94a3b8';
-  const getTabStyles=(n:string)=>{const c=getTabColor(n),a=(n==='All'&&activeTab==='All'&&selectedGenres.length===0)||(n==='Vault'&&activeTab==='Vault')||(n!=='All'&&n!=='Vault'&&selectedGenres.includes(n));return a?{color:c,backgroundColor:`${c}25`,borderColor:`${c}50`,transform:'scale(1.02)'}:{color:`${c}90`,borderColor:'rgba(0,0,0,0)',backgroundColor:'rgba(0,0,0,0)'};};;
+  const getTabStyles=(n:string)=>{const c=getTabColor(n),a=activeTab===n;return a?{color:c,backgroundColor:`${c}25`,borderColor:`${c}50`,transform:'scale(1.02)'}:{color:`${c}90`,borderColor:'rgba(0,0,0,0)',backgroundColor:'rgba(0,0,0,0)'};};
   const getTagStyles=(cat:string)=>{const c=genreColors[cat]||'#94a3b8';return{color:c,borderColor:`${c}60`,backgroundColor:`${c}20`};};
   const getTrackRating=(id:string)=>{const r=approvedReviews.filter(r=>r.trackId===id);return r.length?r.reduce((a,b)=>a+b.rating,0)/r.length:0;};
 
@@ -2189,7 +1396,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   },[currentTrackId,tracks]);
 
   const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
-  const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');setSelectedGenres(p=>p.filter(x=>x!==g));};
+  const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');};
   const isAddingTrack = useRef(false);
   const musicReviewRef = useRef<HTMLDivElement>(null);
   const musicPlayerRef = useRef<HTMLDivElement>(null);
@@ -2206,105 +1413,43 @@ const MusicApp: React.FC<MusicAppProps> = ({
       setTimeout(()=>musicReviewRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),100);
     }
   },[showMusicReviews, reviewingTrackId]);
-  // Extract actual URL if user pastes an <iframe> tag
-  const extractUrl = (input: string): string => {
-    const m = input.match(/src=["']([^"']+)["']/i);
-    return m ? m[1] : input.trim();
-  };
-
-  const fetchTrackMeta = async (rawInput: string) => {
-    const url = extractUrl(rawInput);
-    if (!url.trim()) return;
-    setFormFetching(true);
-    try {
-      // YouTube
-      if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('music.youtube')) {
-        const ytUrl = url.replace('music.youtube.com', 'www.youtube.com');
-        const r = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(ytUrl)}&format=json`);
-        if (r.ok) {
-          const d = await r.json();
-          if (d.author_name) setFormArtist(d.author_name);
-          if (d.title) setFormTitle(d.title);
-          setFormFetching(false); return;
-        }
-      }
-      // SoundCloud
-      if (url.includes('soundcloud.com')) {
-        let scClean = url; try { scClean = new URL(url).origin + new URL(url).pathname; } catch {}
-        const r = await fetch(`https://soundcloud.com/oembed?url=${encodeURIComponent(scClean)}&format=json`);
-        if (r.ok) {
-          const d = await r.json();
-          if (d.author_name) setFormArtist(d.author_name);
-          if (d.title) setFormTitle(d.title);
-          setFormFetching(false); return;
-        }
-      }
-      // AudioMack — parse artist/title directly from URL slug (instant)
-      if (url.includes('audiomack.com')) {
-        const amClean = url.replace(/[?#].*$/, '').replace('/embed/', '/');
-        const parts = amClean.replace(/https?:\/\/audiomack\.com\//, '').split('/').filter(Boolean);
-        const toTitle = (s: string) => s.replace(/-/g, ' ').replace(/\b\w/g, (c:string) => c.toUpperCase());
-        if (parts[0]) setFormArtist(toTitle(parts[0]));
-        if (parts[2]) setFormTitle(toTitle(parts[2]));
-        setFormFetching(false); return;
-      }
-    } catch {}
-    setFormFetching(false);
-  };
-
   const handleAddTrack=async ()=>{
     if(!formUrl.trim())return;
     if(isAddingTrack.current)return;
-    const url=extractUrl(formUrl);
-    // Check for duplicate
-    const allTracks = [...tracks, ...userTracks];
-    if(allTracks.some(t=>t.url===url||t.url.replace(/[?#].*/,'')===url.replace(/[?#].*/,''))){
-      alert('This track is already in the archive.');
-      return;
-    }
     isAddingTrack.current=true;
+    const url=formUrl.trim();
     // Start with whatever the user typed (may be empty)
     let artist=formArtist.trim();
     let title=formTitle.trim();
     let thumbnail='';
-    // AudioMack — parse artist/title from URL slug, no thumbnail
-    if (url.includes('audiomack.com')) {
-      const amClean = url.replace(/[?#].*$/, '').replace('/embed/', '/');
-      const parts = amClean.replace(/https?:\/\/audiomack\.com\//, '').split('/').filter(Boolean);
-      const toTitle = (s: string) => s.replace(/-/g, ' ').replace(/\b\w/g, (c:string) => c.toUpperCase());
-      if (!artist && parts[0]) artist = toTitle(parts[0]);
-      if (!title && parts[2]) title = toTitle(parts[2]);
-    } else {
-      // Auto-fetch from oEmbed if YouTube or SoundCloud
-      try {
-        const ytUrl2 = url.replace('music.youtube.com', 'www.youtube.com');
-        const oembed = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(ytUrl2)}&format=json`);
-        if(oembed.ok){
-          const d=await oembed.json();
+    // Auto-fetch from oEmbed if YouTube or SoundCloud
+    try {
+      const oembed = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+      if(oembed.ok){
+        const d=await oembed.json();
+        if(!artist && d.author_name) artist=d.author_name;
+        if(!title && d.title) title=d.title;
+        if(d.thumbnail_url) thumbnail=d.thumbnail_url;
+      }
+    } catch{}
+    try {
+      if(!thumbnail){
+        let scClean = url; try { scClean = new URL(url).origin + new URL(url).pathname; } catch {}
+        const sc = await fetch(`https://soundcloud.com/oembed?url=${encodeURIComponent(scClean)}&format=json`);
+        if(sc.ok){
+          const d=await sc.json();
           if(!artist && d.author_name) artist=d.author_name;
           if(!title && d.title) title=d.title;
           if(d.thumbnail_url) thumbnail=d.thumbnail_url;
         }
-      } catch{}
-      try {
-        if(!thumbnail){
-          let scClean = url; try { scClean = new URL(url).origin + new URL(url).pathname; } catch {}
-          const sc = await fetch(`https://soundcloud.com/oembed?url=${encodeURIComponent(scClean)}&format=json`);
-          if(sc.ok){
-            const d=await sc.json();
-            if(!artist && d.author_name) artist=d.author_name;
-            if(!title && d.title) title=d.title;
-            if(d.thumbnail_url) thumbnail=d.thumbnail_url;
-          }
-        }
-      } catch{}
-      // Fallback: derive YouTube thumbnail directly from URL
-      if(!thumbnail){
-        let id='';
-        if(url.includes('youtu.be/')) id=url.split('youtu.be/')[1]?.split(/[?&/#]/)[0]||'';
-        else if(url.includes('v=')) id=url.split('v=')[1]?.split(/[?&/#]/)[0]||'';
-        if(id) thumbnail=`https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
       }
+    } catch{}
+    // Fallback: derive YouTube thumbnail directly from URL
+    if(!thumbnail){
+      let id='';
+      if(url.includes('youtu.be/')) id=url.split('youtu.be/')[1]?.split(/[?&/#]/)[0]||'';
+      else if(url.includes('v=')) id=url.split('v=')[1]?.split(/[?&/#]/)[0]||'';
+      if(id) thumbnail=`https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
     }
     if(!artist) artist='Unknown Artist';
     if(!title) title='Unknown Title';
@@ -2332,32 +1477,20 @@ const MusicApp: React.FC<MusicAppProps> = ({
   };
 
   // thumbnails rendered via <TrackThumbnail> component directly
-  const handleSaveEdit=(id:string)=>{
-    const update = (t:MusicTrack) => t.id===id ? {...t, artist:editArtist.trim()||t.artist, title:editTitle.trim()||t.title, category:editCategory||t.category} : t;
-    setTracks(p=>p.map(update));
-    setUserTracks(p=>p.map(update));
-    setEditingTrackId(null);
-  };
   const handleToggleFavorite=(id:string,e:React.MouseEvent)=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setTracks(p=>p.map(t=>t.id===id?{...t,isFavorite:!t.isFavorite}:t));const track=tracks.find(t=>t.id===id);if(!track?.isFavorite)setShowMusicVault(true);};
-  const selectTrackDebounce = React.useRef(false);
   const handleSelectTrack=(track:MusicTrack)=>{
-    if(selectTrackDebounce.current) return;
-    selectTrackDebounce.current = true;
-    setTimeout(()=>{ selectTrackDebounce.current = false; }, 500);
-    if(currentTrackId===track.id){
-      setIsPlaying(p=>!p);
-    } else {
-      setCurrentTrackId(track.id);
-      setIsPlaying(true);
+    if(currentTrackId===track.id){ setIsPlaying(p=>!p); }
+    else{
+      setCurrentTrackId(track.id); setIsPlaying(true);
       if(track.addedBy) setUserTracks(p=>p.map(t=>t.id===track.id?{...t,playCount:t.playCount+1}:t));
       else setTracks(p=>p.map(t=>t.id===track.id?{...t,playCount:t.playCount+1}:t));
     }
   };
-  // Crossfade on track change - short enough to not confuse users
+  // Crossfade on track change
   useEffect(()=>{
     if(!currentTrackId) return;
     setCrossfading(true);
-    const t = setTimeout(()=>setCrossfading(false), 300);
+    const t = setTimeout(()=>setCrossfading(false), 800);
     return ()=>clearTimeout(t);
   },[currentTrackId]);
 
@@ -2378,7 +1511,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
       const cmd = isPlaying ? 'play' : 'pause';
       try{ iframe.contentWindow?.postMessage(JSON.stringify({method:cmd}),'https://w.soundcloud.com'); }catch{}
     }
-    // AudioMack: play/pause handled by opacity + src in visible iframe above
   },[isPlaying, currentTrackId, type]);
 
   const handleLikeTrack=(id:string,e:React.MouseEvent)=>{
@@ -2413,36 +1545,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   const renderTab=(tab:{name:string})=>{
     const del=isAuthorized&&!['All','Vault'].includes(tab.name);
-    const count = tab.name==='All' ? tracks.length
-                : tab.name==='Vault' ? tracks.filter(t=>t.isFavorite).length
-                : tracks.filter(t=>t.category===tab.name).length;
-    const tipLabel = `${tab.name} · ${count} track${count!==1?'s':''}`;
-    // Shorten long display names so they fit the narrow grid cell
-    const shortName = (() => {
-      const n = tab.name;
-      if (n.length <= 10) return n;
-      // Smart abbreviations for known long patterns
-      if (/meditation.*silent/i.test(n)) return 'Med. Silent';
-      if (/meditation.*guided/i.test(n)) return 'Med. Guided';
-      if (/meditation/i.test(n)) return 'Meditation';
-      if (/electronic/i.test(n)) return 'Electronic';
-      if (/classical/i.test(n)) return 'Classical';
-      if (/affirmation/i.test(n)) return 'Affirm.';
-      // Generic: keep first 9 chars + ellipsis
-      return n.slice(0, 9) + '…';
-    })();
     return(
       <div key={tab.name} className="relative group/tab">
-        <Tooltip label={tipLabel} position="bottom">
-          <button onClick={()=>{
-            if(tab.name==='All'){setActiveTab('All');setSelectedGenres([]);}
-            else if(tab.name==='Vault'){setActiveTab('Vault');setSelectedGenres([]);}
-            else{if(activeTab!=='All')setActiveTab('All');setSelectedGenres(p=>{const next=p.includes(tab.name)?p.filter(x=>x!==tab.name):[...p,tab.name];console.log('selectedGenres:',next);return next;});}
-          }} style={getTabStyles(tab.name)}
-            className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-normal transition-all flex items-center justify-center px-1 border cursor-pointer">
-            <span className="truncate w-full text-center px-0.5">{shortName}</span>
-          </button>
-        </Tooltip>
+        <button onClick={()=>setActiveTab(tab.name)} style={getTabStyles(tab.name)}
+          className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center px-1 border cursor-pointer">
+          <span className="truncate w-full text-center px-1">{tab.name}</span>
+        </button>
         {del&&<button onClick={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"/></button>}
       </div>
     );
@@ -2473,29 +1581,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
         {currentUser!==MASTER_IDENTITY&&currentUser!==''&&(<button onClick={onToggleUserPlaylist} className={`absolute left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl flex items-center gap-2 border transition-all font-black text-[10px] tracking-widest uppercase ${showUserPlaylist?'bg-white text-black shadow-lg':'border-white/10 bg-white/5 text-slate-400 hover:text-white hover:border-white/20'}`}><i className="fa-solid fa-list text-sm"/><span>{currentUser.replace(/_/g,' ')} Playlist</span></button>)}
         <div className="flex gap-3 items-center">
 
-          {/* Identify button — logged-in click = instant logout, logged-out = join panel */}
-          <button onClick={()=>{ if(isUserLocked){ handleIdentifyLogout(); } else {
-  // 1. Try USER_KEY name → pic lookup
-  const savedName = localStorage.getItem(USER_KEY) || '';
-  let prefillName = savedName ? savedName.replace(/_/g,' ') : '';
-  let savedPic = savedName ? getUserPic(savedName) : '';
-  // 2. Fallback: scan picMap for any saved users on this device
-  if (!savedPic || !prefillName) {
-    const picMap = getPicMap();
-    const userKeys = Object.keys(picMap).filter(k => k !== 'ADMIN');
-    if (userKeys.length > 0) {
-      // Prefer key matching savedName, else use the first (or only) entry
-      const match = savedName && userKeys.find(k => k === savedName);
-      const best = match || userKeys[0];
-      if (!savedPic) savedPic = picMap[best];
-      if (!prefillName) prefillName = best.replace(/_/g,' ');
-    }
-  }
-  setShowIdentify(true);
-  setIdentifyName(prefillName);
-  setIdentifyErr('');
-  setIdentifyPic(savedPic);
-} }} className={`px-4 h-11 rounded-xl border flex items-center gap-3 transition-all relative overflow-hidden ${isUserLocked?'bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400':'border-purple-500/40 bg-gradient-to-r from-purple-600/20 to-blue-600/20 hover:from-purple-500/40 hover:to-blue-500/40 hover:border-purple-400/60 hover:shadow-lg hover:shadow-purple-500/20'}`}>
+          {/* Identify button */}
+          <button onClick={()=>{ setShowIdentify(true); setIdentifyName(isUserLocked?currentUser.replace(/_/g,' '):''); setIdentifyErr(''); setIdentifyPic(getUserPic(currentUser)); }} className={`px-4 h-11 rounded-xl border flex items-center gap-3 transition-all relative overflow-hidden ${isUserLocked?'bg-blue-600/10 border-blue-500/20 text-blue-400 hover:bg-blue-600/20':'border-purple-500/40 bg-gradient-to-r from-purple-600/20 to-blue-600/20 hover:from-purple-500/40 hover:to-blue-500/40 hover:border-purple-400/60 hover:shadow-lg hover:shadow-purple-500/20'}`}>
             {!isUserLocked && <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-white/5 to-blue-500/0 animate-pulse pointer-events-none"/>}
             <div className="flex flex-col items-end">
               <span className="text-[7px] font-black uppercase tracking-widest opacity-60">{isUserLocked?'My Archive':'Join Now'}</span>
@@ -2505,7 +1592,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
               {currentPic?<img src={currentPic} className="w-full h-full object-cover" alt="profile"/>: isUserLocked ? <i className="fa-solid fa-user-astronaut text-[11px] text-blue-400"/> : <div className="hover:rotate-[360deg] transition-transform duration-700"><IntegralLogo className="w-6 h-6"/></div>}
             </div>
           </button>
-
+          {isUserLocked&&<button onClick={handleIdentifyLogout} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-600 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 transition-all"><i className="fa-solid fa-arrow-right-from-bracket text-[11px]"/></button>}
           {currentUser!==MASTER_IDENTITY&&currentUser!==''&&<MusicPlaylistButton currentUser={currentUser} tracks={tracks} currentTrackId={currentTrackId} onSelectTrack={(id)=>{setCurrentTrackId(id);setIsPlaying(true);}}/>}
           {isAuthorized&&<button onClick={handleLockClick} className="relative w-11 h-11 rounded-xl flex items-center justify-center border transition-all cursor-pointer bg-blue-600/10 border-blue-500/30 hover:bg-red-500/10 hover:border-red-500/30 overflow-hidden group/admin">
             {adminPic ? <img src={adminPic} className="w-full h-full object-cover" alt="admin"/> : <i className="fa-solid fa-lock-open text-blue-400"/>}
@@ -2562,7 +1649,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
       <div style={{flex:1,display:'flex',overflow:'hidden',position:'relative',zIndex:10,minHeight:0,height:'calc(100vh - 80px)'}}>
 
         {/* ── Sidebar ── */}
-        <aside className="w-[460px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 flex flex-col">
+        <aside className="w-[490px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 flex flex-col">
           {/* Toolbar */}
           <div className="flex-none px-4 pt-6 pb-3">
             <div className="flex items-center justify-between mb-4 px-1">
@@ -2571,7 +1658,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Music Archive
                 </h3>
-                {(isAuthorized||isUserLocked)&&<button onClick={()=>setShowAddForm(p=>!p)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`} title="Add track"><i className="fa-solid fa-plus text-[9px]"/></button>}
+                {(isAuthorized || (isUserLocked&&currentUser!==MASTER_IDENTITY))&&(<button onClick={()=>setShowAddForm(p=>!p)} className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm?'bg-purple-600/30 border-purple-500/40 text-purple-300 rotate-45':'bg-purple-600/20 border-purple-500/30 text-purple-400 hover:bg-purple-600/40'}`} title="Add track"><i className="fa-solid fa-plus text-[9px]"/></button>)}
               </div>
               {/* Right: toggle + shuffle + search */}
               <div className="flex items-center gap-2">
@@ -2597,19 +1684,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
             {showAddForm && (
               <div className="animate-fade-in bg-slate-900/90 border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl space-y-4">
                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Add Track</h4>
-                <div className="relative">
-                  <input autoFocus value={formUrl}
-                    onChange={e=>{ const v=e.target.value; const m=v.match(/src=["']([^"']+)["']/i); setFormUrl(m?m[1]:v); setFormArtist(''); setFormTitle(''); }}
-                    onBlur={e=>fetchTrackMeta(e.target.value)}
-                    onPaste={e=>{ setTimeout(()=>fetchTrackMeta((e.target as HTMLInputElement).value), 50); }}
-                    placeholder="YouTube / SoundCloud / AudioMack URL..."
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-600"/>
-                  {formFetching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] text-purple-400 font-black uppercase tracking-widest animate-pulse">Fetching...</span>}
-                </div>
-                <input value={formArtist} onChange={e=>setFormArtist(e.target.value)} placeholder="Artist..." className={`w-full bg-black/40 border rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700 transition-all ${formArtist?'border-purple-500/30':'border-white/10'}`}/>
-                <input value={formTitle} onChange={e=>setFormTitle(e.target.value)} placeholder="Title..." className={`w-full bg-black/40 border rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700 transition-all ${formTitle?'border-purple-500/30':'border-white/10'}`}/>
+                <input autoFocus value={formUrl} onChange={e=>setFormUrl(e.target.value)} placeholder="YouTube or SoundCloud URL..." className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-600"/>
+                <input value={formArtist} onChange={e=>setFormArtist(e.target.value)} placeholder="Artist (auto-fetched)..." className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700"/>
+                <input value={formTitle} onChange={e=>setFormTitle(e.target.value)} placeholder="Title (auto-fetched)..." className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700"/>
                 <div className="flex flex-wrap gap-1">
-                  {[...genres].sort((a,b)=>a.localeCompare(b)).map(g=>(
+                  {genres.map(g=>(
                     <button key={g} type="button" onClick={()=>setFormCategory(g)}
                       className={`px-2 py-1 rounded-md border text-[8px] font-black uppercase tracking-widest transition-all ${formCategory===g?'bg-white border-white text-black':'bg-white/5 border-white/5 text-slate-500 hover:text-white'}`}>
                       {g}
@@ -2674,30 +1753,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                   const reviewCount=approvedReviews.filter(r=>r.trackId===track.id).length;
                   return(
                     <div key={track.id} onClick={()=>handleSelectTrack(track)} className={`flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer border relative ${currentTrackId===track.id?'bg-white/15 border-white/20':'bg-transparent border-transparent hover:bg-white/5'}`}>
-                      {confirmDeleteId===track.id&&(
-                        <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex items-center justify-between px-6 border border-red-500/20" onClick={e=>e.stopPropagation()}>
-                          <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Delete Track?</span>
-                          <div className="flex gap-2">
-                            <button onClick={()=>setConfirmDeleteId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
-                            <button onClick={e=>{e.stopPropagation();handleRemoveTrack(track.id);}} className="px-3 py-1 bg-red-600 text-white rounded-lg text-[8px] font-black uppercase">Destroy</button>
-                          </div>
-                        </div>
-                      )}
-                      {editingTrackId===track.id&&(
-                        <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col gap-2 px-4 py-3 border border-purple-500/20" onClick={e=>e.stopPropagation()}>
-                          <div className="flex gap-2">
-                            <input value={editArtist} onChange={e=>setEditArtist(e.target.value)} placeholder="Artist" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                            <input value={editTitle} onChange={e=>setEditTitle(e.target.value)} placeholder="Title" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                          </div>
-                          <div className="flex gap-1 flex-wrap">
-                            {[...genres].sort((a,b)=>a.localeCompare(b)).map(g=><button key={g} onClick={()=>setEditCategory(g)} className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${editCategory===g?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}>{g}</button>)}
-                          </div>
-                          <div className="flex gap-2 justify-end">
-                            <button onClick={()=>setEditingTrackId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
-                            <button onClick={()=>handleSaveEdit(track.id)} className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[8px] font-black uppercase">Save</button>
-                          </div>
-                        </div>
-                      )}
                       <div className={`w-24 h-16 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentTrackId===track.id?'border-purple-500/40':'border-white/5'}`}>
                         <TrackThumbnail artist={track.artist} title={track.title} category={track.category} thumbnail={getThumbnailUrl(track)} style={{width:'100%',height:'100%'}}/>
                         {currentTrackId===track.id&&<div className="absolute inset-0 bg-black/50 flex items-center justify-center"><i className={`fa-solid ${isPlaying?'fa-pause':'fa-play'} text-white text-sm`}/></div>}
@@ -2705,17 +1760,17 @@ const MusicApp: React.FC<MusicAppProps> = ({
                       <div className="flex-1 overflow-hidden flex flex-col justify-center gap-0 min-w-0">
                         <p className="text-[14px] font-black uppercase tracking-tight text-purple-400 truncate leading-none">{track.artist}</p>
                         <p className="text-[15px] font-bold leading-none truncate text-slate-300">{track.title}</p>
-                        <div className="flex items-center flex-nowrap mt-[4px] overflow-hidden">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-1 shrink-0">{track.category}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-orange-500 text-[9px] font-black uppercase shrink-0">Listened::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{track.playCount||0}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-blue-500 text-[9px] font-black uppercase shrink-0">Liked::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{track.likeCount||0}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-purple-500 text-[9px] font-black uppercase shrink-0">Reviews::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{reviewCount}</span>
+                        <div className="flex items-center flex-wrap">
+                          <span className="text-orange-500 text-[11px] font-black uppercase">Listened::</span><span className="text-white text-[11px] font-black ml-0.5">{track.playCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Liked::</span><span className="text-white text-[11px] font-black ml-0.5">{track.likeCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{reviewCount}</span>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-0 flex-shrink-0 ml-2">
-                        <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){onPendingReview();return;}handleLikeTrack(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${((track as any).likedBy||[]).includes(currentUser)?'text-blue-400':'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((track as any).likedBy||[]).includes(currentUser)?'solid':'regular'} fa-thumbs-up text-[15px]`}/></button>
+                      <div className="flex flex-col gap-0 flex-shrink-0">
+                        <button onClick={e=>{e.stopPropagation();handleLikeTrack(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${((track as any).likedBy||[]).includes(currentUser)?'text-blue-400':'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((track as any).likedBy||[]).includes(currentUser)?'solid':'regular'} fa-thumbs-up text-[15px]`}/></button>
                         {reviews.some(r=>r.trackId===track.id&&r.user===currentUser)
                           ? <button className="w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[15px]"/></button>
-                          : <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){onPendingReview();return;}handleSelectTrack(track);setReviewingTrackId(track.id);setShowMusicReviews(true);}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[15px]"/></button>}
-                        <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){onPendingReview();return;}handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[15px]`}/></button>
-                        <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
+                          : <button onClick={e=>{e.stopPropagation();handleSelectTrack(track);setReviewingTrackId(track.id);setShowMusicReviews(true);}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[15px]"/></button>}
+                        <button onClick={e=>{e.stopPropagation();handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[15px]`}/></button>
+                        <button onClick={e=>{e.stopPropagation();handleRemoveTrack(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
                       </div>
                     </div>
                   );
@@ -2732,28 +1787,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
               const reviewCount=approvedReviews.filter(r=>r.trackId===track.id).length;
               return(
                 <div key={track.id} onClick={()=>handleSelectTrack(track)}
-                  className={`group flex items-center gap-2 px-[10px] py-[6px] rounded-lg transition-all cursor-pointer border relative ${currentTrackId===track.id?(isPlaying?'bg-purple-500/25 border-purple-400/40 shadow-lg shadow-purple-500/10':'bg-purple-500/25 border-purple-400/40 shadow-lg shadow-purple-500/10 animate-pulse'):'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/25 hover:border-purple-400/40'}`}>
+                  className={`group flex items-center gap-2 px-1.5 py-0.5 rounded-lg transition-all cursor-pointer border relative ${currentTrackId===track.id?(isPlaying?'bg-purple-500/25 border-purple-400/40 shadow-lg shadow-purple-500/10':'bg-purple-500/25 border-purple-400/40 shadow-lg shadow-purple-500/10 animate-pulse'):'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/25 hover:border-purple-400/40'}`}>
                   {confirmDeleteId===track.id&&(
                     <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex items-center justify-between px-6 border border-red-500/20" onClick={e=>e.stopPropagation()}>
                       <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Delete Track?</span>
                       <div className="flex gap-2">
                         <button onClick={()=>setConfirmDeleteId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
                         <button onClick={e=>{e.stopPropagation();handleRemoveTrack(track.id);}} className="px-3 py-1 bg-red-600 text-white rounded-lg text-[8px] font-black uppercase">Destroy</button>
-                      </div>
-                    </div>
-                  )}
-                  {editingTrackId===track.id&&(
-                    <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col gap-2 px-4 py-3 border border-purple-500/20" onClick={e=>e.stopPropagation()}>
-                      <div className="flex gap-2">
-                        <input value={editArtist} onChange={e=>setEditArtist(e.target.value)} placeholder="Artist" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                        <input value={editTitle} onChange={e=>setEditTitle(e.target.value)} placeholder="Title" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                      </div>
-                      <div className="flex gap-1 flex-wrap">
-                        {[...genres].sort((a,b)=>a.localeCompare(b)).map(g=><button key={g} onClick={()=>setEditCategory(g)} className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${editCategory===g?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}>{g}</button>)}
-                      </div>
-                      <div className="flex gap-2 justify-end">
-                        <button onClick={()=>setEditingTrackId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
-                        <button onClick={()=>handleSaveEdit(track.id)} className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[8px] font-black uppercase">Save</button>
                       </div>
                     </div>
                   )}
@@ -2770,12 +1810,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
                   <div className="flex-1 overflow-hidden flex flex-col justify-center gap-0 min-w-0">
                     <p className="text-[14px] font-black uppercase tracking-tight text-purple-400 truncate leading-none">{track.artist}</p>
                     <p className="text-[15px] font-bold leading-none truncate text-slate-300">{track.title}</p>
-                    <div className="flex items-center flex-nowrap mt-[4px] overflow-hidden">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-1 shrink-0">{track.category}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-orange-500 text-[9px] font-black uppercase shrink-0">Listened::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{track.playCount||0}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-blue-500 text-[9px] font-black uppercase shrink-0">Liked::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{track.likeCount||0}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-purple-500 text-[9px] font-black uppercase shrink-0">Reviews::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{reviewCount}</span>
+                    <div className="flex items-center flex-wrap">
+                      <span className="text-orange-500 text-[11px] font-black uppercase">Listened::</span><span className="text-white text-[11px] font-black ml-0.5">{track.playCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Liked::</span><span className="text-white text-[11px] font-black ml-0.5">{track.likeCount||0}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{reviewCount}</span>
                     </div>
                   </div>
                   {/* Action buttons */}
-                  <div className="flex flex-col flex-shrink-0 self-stretch relative w-6 ml-1">
+                  <div className="flex flex-col flex-shrink-0 self-stretch relative w-6">
                     {(reviews.some(r=>r.trackId===track.id&&r.user===currentUser)
                       ? <button className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[11px]"/></button>
                       : <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){onPendingReview();return;}handleSelectTrack(track);setReviewingTrackId(track.id);setShowMusicReviews(true);}} className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[11px]"/></button>)}
@@ -2784,7 +1824,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                       <button onClick={e=>{e.stopPropagation();if(!isUserLocked&&!isAuthorized){onPendingReview();return;}handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[11px]`}/></button>
                     </div>
                     {(isAuthorized||(isUserLocked&&track.addedBy===currentUser))&&<button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>}
-                    {(isAuthorized||(isUserLocked&&track.addedBy===currentUser))&&<button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);}} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all"><i className="fa-solid fa-pen text-[7px]"/></button>}
                   </div>
                 </div>
               );
@@ -2800,8 +1839,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
             <div className="absolute opacity-0 pointer-events-none w-0 h-0">
               {type==='soundcloud'
                 ? <iframe key={`sc-${currentTrackId}`} id="sc-player" width="1" height="1" scrolling="no" frameBorder="no" allow="autoplay" src={embedUrl}/>
-                : (type as string)!=='audiomack' &&
-                  <iframe key={`yt-${currentTrackId}`} id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
+                : <iframe key={`yt-${currentTrackId}`} id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
                     onLoad={e=>{ try{(e.target as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch{} }}
                   />
               }
@@ -2810,62 +1848,18 @@ const MusicApp: React.FC<MusicAppProps> = ({
           <div className="w-full flex flex-col pt-8 gap-0">
             <div className="flex items-center justify-between px-8 mb-6">
               <h2 className="text-purple-500 font-black uppercase text-[10px] tracking-[0.4em] flex items-center gap-3"><span className="w-1 h-4 bg-purple-500 rounded-full"></span>{currentTrack?'Current Music Stream':'Select Track'}</h2>
-
             </div>
             <div className="px-8 w-full">
               <div ref={musicPlayerRef} className="w-full max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto">
                 {/* Idle/paused state */}
-                <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'radial-gradient(ellipse at 50% 50%,#1a0035 0%,#0a001a 60%,#000 100%)',opacity:(currentTrack&&((type as string)==='audiomack'||isPlaying))?0:1,transition:'opacity 0.4s ease',pointerEvents:(currentTrack&&((type as string)==='audiomack'||isPlaying))?'none':'auto'}}>
+                <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'radial-gradient(ellipse at 50% 50%,#1a0035 0%,#0a001a 60%,#000 100%)',opacity:(currentTrack&&isPlaying)?0:1,transition:'opacity 0.4s ease',pointerEvents:(currentTrack&&isPlaying)?'none':'auto'}}>
                   {currentTrack?(<TrackThumbnail artist={currentTrack.artist} title={currentTrack.title} category={currentTrack.category} thumbnail={getThumbnailUrl(currentTrack)} className="relative z-10 rounded-2xl shadow-2xl border border-white/10" style={{width:'50%',height:'45%',maxWidth:320,maxHeight:200,opacity:0.7}}/>):(<div className="flex items-end justify-center gap-[3px] h-40 w-1/2">{Array.from({length:36}).map((_,i)=>(<div key={i} style={{flex:1,borderRadius:'2px 2px 0 0',height:`${15+Math.abs(Math.sin(i*.6))*65+(i%4)*8}%`,background:`hsl(${265+i*3},70%,55%)`}}/>))}</div>)}
                   <i className="fa-solid fa-music" style={{fontSize:36,color:'#a855f7',opacity:0.5}}/>
                   <p className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack?'Paused — Click Play':'Select a Track to Begin'}</p>
                   {currentTrack&&(<button onClick={()=>setIsPlaying(true)} className="mt-2 px-6 py-2 rounded-xl bg-purple-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-purple-500 transition-all shadow-lg shadow-purple-500/30"><i className="fa-solid fa-play mr-2"/>Play</button>)}
                 </div>
-
-
-                {/* AudioMack — show only waveform strip, clip promo popup */}
-                {currentTrack&&(type as string)==='audiomack'&&(
-                  <div style={{position:'absolute',inset:0,zIndex:5,overflow:'hidden',background:'#0a0010'}}>
-                    <iframe
-                      key={`am-${currentTrackId}`}
-                      id="am-player"
-                      src={embedUrl}
-                      width="100%"
-                      height="252"
-                      style={{
-                        position:'absolute',
-                        bottom:0,
-                        left:0,
-                        width:'100%',
-                        height:252,
-                        border:'none',
-                        display:'block',
-                        marginBottom:0
-                      }}
-                      title={currentTrack.title}
-                    />
-                  </div>
-                )}
-                {/* YouTube/SoundCloud visible player */}
-                {currentTrack&&(type as string)!=='audiomack'&&isPlaying&&!showVisualizer&&(
-                  <div style={{position:'absolute',inset:0,zIndex:5}}>
-                    <iframe
-                      key={`vis-${currentTrackId}`}
-                      src={embedUrl}
-                      width="100%" height="100%"
-                      style={{width:'100%',height:'100%',border:'none',display:'block'}}
-                      allow="autoplay; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
-                )}
-                {/* Thumbnail while paused (non-AudioMack) */}
-                {currentTrack&&(type as string)!=='audiomack'&&(!isPlaying||showVisualizer)&&(
-                  <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'radial-gradient(ellipse at 50% 40%,#0d001a 0%,#000 80%)',pointerEvents:'none'}}>
-                    <img src={getThumbnailUrl(currentTrack)} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.25,filter:'blur(40px)',transform:'scale(1.1)'}}/>
-                    <img src={getThumbnailUrl(currentTrack)} alt={currentTrack.title} style={{position:'relative',zIndex:1,width:'100%',height:'100%',objectFit:'contain'}}/>
-                  </div>
-                )}
+                {/* Thumbnail while playing */}
+                {currentTrack&&(<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'radial-gradient(ellipse at 50% 40%,#0d001a 0%,#000 80%)',opacity:(isPlaying&&!showVisualizer)?1:0,transition:'opacity 0.4s ease',pointerEvents:'none'}}><img src={getThumbnailUrl(currentTrack)} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.25,filter:'blur(40px)',transform:'scale(1.1)'}}/><img src={getThumbnailUrl(currentTrack)} alt={currentTrack.title} style={{position:'relative',zIndex:1,width:'100%',height:'100%',objectFit:'contain'}}/></div>)}
                 {/* Visualizer */}
                 <div style={{position:'absolute',inset:0,zIndex:10,opacity:showVisualizer?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}}>
                   {showVisualizer && <VisualizerCanvas key={vizKey} onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} isPlaying={isPlaying}/>}
@@ -2876,7 +1870,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
             </div>
             <div className="w-full mt-6 px-8">
               <div className="bg-white/5 border border-white/5 rounded-3xl flex flex-wrap items-center px-8 py-4 w-full gap-3">
-                {currentTrack?(<><Tooltip label={`${currentTrack.category} · ${tracks.filter(t=>t.category===currentTrack.category).length} tracks`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span></Tooltip><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{currentUser.replace(/_/g,' ')}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
+                {currentTrack?(<><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{currentUser.replace(/_/g,' ')}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
               </div>
             </div>
 
@@ -3039,7 +2033,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                   }}
                 />
               </label>
-              <p className="text-[9px] text-slate-600 uppercase tracking-widest mt-2">{identifyPic ? 'Click to change photo' : 'Click to add photo'}</p>
+              <p className="text-[9px] text-slate-600 uppercase tracking-widest mt-2">Click to add photo</p>
             </div>
 
             <div className="flex items-center gap-2 mb-5">
@@ -3052,15 +2046,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
               <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 block">Your Name</label>
               <input
                 autoFocus type="text" value={identifyName}
-                onChange={e=>{
-                  const val = e.target.value;
-                  setIdentifyName(val);
-                  setIdentifyErr('');
-                  // Auto-load saved pic if this name is recognised
-                  const key = val.trim().toUpperCase().replace(/\s+/g,'_');
-                  const savedPic = key ? getUserPic(key) : '';
-                  if(savedPic) setIdentifyPic(savedPic);
-                }}
+                onChange={e=>{setIdentifyName(e.target.value);setIdentifyErr('');}}
                 onKeyDown={e=>e.key==='Enter'&&handleIdentify()}
                 placeholder="Enter your name"
                 className="w-full h-10 px-4 rounded-xl bg-black/60 border border-white/10 text-white text-sm font-bold placeholder-slate-700 focus:outline-none focus:border-blue-500/40 uppercase"
@@ -3301,7 +2287,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setCurrentUser(MASTER_IDENTITY);
     setIsUserLocked(false);
-    // Keep USER_KEY so the login panel can pre-fill name + pic on next visit
+    localStorage.removeItem(USER_KEY);
     localStorage.removeItem(USER_LOCKED_KEY);
     setShowUserPlaylist(false);
     setActiveSecondaryView('none');
@@ -3512,10 +2498,6 @@ const App: React.FC = () => {
       return next;
     });
   }, [currentVideoId]);
-
-  const handleEditVideo = useCallback((id: string, prompt: string, category: string) => {
-    setVideos(prev => prev.map(v => v.id === id ? {...v, prompt: prompt||v.prompt, category: (category||v.category) as VideoCategory} : v));
-  }, []);
 
   const handleManualAdd = useCallback((u: string, p: string, c: VideoCategory) => {
     const isUserVideo = isUserLocked && currentUser !== MASTER_IDENTITY;
@@ -3774,7 +2756,7 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex overflow-hidden relative z-10" style={{minHeight:0}}>
         <aside className="w-[490px] flex-shrink-0 min-w-0 border-r border-white/5 bg-black/20 overflow-y-auto custom-scrollbar">
-          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const available = videos.filter(v => v.id !== currentVideoId); const r = available.length ? available[Math.floor(Math.random()*available.length)] : videos[0]; if(r){setCurrentVideoId(r.id);setIsPlaying(true);} }} onAddManualVideo={handleManualAdd} onEditVideo={handleEditVideo} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={openMusicWithPlaylist} isUserLocked={isUserLocked} onShowUserPlaylist={showUserPlaylist&&currentUser!==MASTER_IDENTITY} onHideUserPlaylist={()=>setShowUserPlaylist(false)} onMoveToFavPick={() => {}} onToggleLike={handleToggleLike} isPlaying={isPlaying} onWriteReview={(videoId) => { setCurrentVideoId(videoId); setVideoReviewRating(5); setVideoReviewComment(''); setShowVideoReviews(true); setActiveSecondaryView('reviews'); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} onRequestIdentify={()=>{setShowVisitorToast(true);setTimeout(()=>setShowVisitorToast(false),7000);}}/>
+          <Playlist videos={videos} categories={categories} categoryColors={categoryColors} currentVideo={currentVideo} onSelect={handleSelectVideo} onRemove={handleRemoveVideo} onToggleFavorite={handleToggleFavorite} userFavorites={currentUserFavorites} onAddRandom={() => { const available = videos.filter(v => v.id !== currentVideoId); const r = available.length ? available[Math.floor(Math.random()*available.length)] : videos[0]; if(r){setCurrentVideoId(r.id);setIsPlaying(true);} }} onAddManualVideo={handleManualAdd} onMoveVideo={() => {}} onPurgeAll={handlePurgeAll} activeTab={playlistTab} setActiveTab={setPlaylistTab} isAuthorized={isAuthorized} onAddCategory={handleAddCategory} onRemoveCategory={handleRemoveCategory} onUpdateCategoryColor={() => {}} onOpenMusicApp={openMusicWithPlaylist} isUserLocked={isUserLocked} onShowUserPlaylist={showUserPlaylist&&currentUser!==MASTER_IDENTITY} onHideUserPlaylist={()=>setShowUserPlaylist(false)} onMoveToFavPick={() => {}} onToggleLike={handleToggleLike} isPlaying={isPlaying} onWriteReview={(videoId) => { setCurrentVideoId(videoId); setVideoReviewRating(5); setVideoReviewComment(''); setShowVideoReviews(true); setActiveSecondaryView('reviews'); }} currentUser={currentUser} onAddToPlaylist={currentUser !== MASTER_IDENTITY ? () => setShowPlaylistPanel(v => !v) : undefined} onRequestIdentify={()=>{setShowVisitorToast(true);setTimeout(()=>setShowVisitorToast(false),7000);}}/>
         </aside>
 
         <section className="flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
@@ -3797,7 +2779,7 @@ const App: React.FC = () => {
               <div className="w-full animate-fade-in mt-6 px-8">
                 <div className="bg-white/5 border border-white/5 rounded-3xl flex flex-wrap items-center justify-between px-8 py-4 w-full gap-4">
                   <div className="flex items-center gap-4 flex-wrap">
-                    <Tooltip label={`${currentVideo.category} · ${videos.filter(v=>v.category===currentVideo.category).length} videos`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={{ color: categoryColors[currentVideo.category], borderColor: `${categoryColors[currentVideo.category]}60`, background: `${categoryColors[currentVideo.category]}20` }}>{currentVideo.category}</span></Tooltip>
+                    <span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0" style={{ color: categoryColors[currentVideo.category], borderColor: `${categoryColors[currentVideo.category]}60`, background: `${categoryColors[currentVideo.category]}20` }}>{currentVideo.category}</span>
                     <div className="flex items-center gap-6">
                       <div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Views::</span><span className="text-[13px] font-black text-white">{currentVideo.viewCount.toLocaleString()}</span></div>
                       <div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Likes::</span><span className="text-[13px] font-black text-white">{currentVideo.likeCount.toLocaleString()}</span></div>
@@ -3954,11 +2936,7 @@ const App: React.FC = () => {
             onRestore={handleRestoreNode} 
             isIdentityLocked={isUserLocked}
             onClose={() => setShowLoginOverlay(false)} 
-            defaultName={(() => {
-              if (currentUser && currentUser !== MASTER_IDENTITY && !currentUser.startsWith('NEURAL_NODE')) return currentUser;
-              const saved = localStorage.getItem('integral_active_user_v6') || '';
-              return (!saved || saved === MASTER_IDENTITY || saved.startsWith('NEURAL_NODE')) ? '' : saved;
-            })()}
+            defaultName={currentUser !== MASTER_IDENTITY ? currentUser : ''}
             defaultTab={loginDefaultTab}
           />
         </div>
@@ -4083,14 +3061,7 @@ const App: React.FC = () => {
           <MusicApp
             currentUser={currentUser}
             isAuthorized={isAuthorized}
-            onClose={() => {
-              // Re-read identity from localStorage on close as safety net
-              const savedUser = localStorage.getItem(USER_KEY);
-              const savedLocked = localStorage.getItem(USER_LOCKED_KEY) === 'true';
-              if (savedUser && savedUser !== currentUser) setCurrentUser(savedUser);
-              if (savedLocked !== isUserLocked) setIsUserLocked(savedLocked);
-              setShowMusic(false);
-            }}
+            onClose={() => setShowMusic(false)}
             isUserLocked={isUserLocked}
             onLogout={handleLogout}
             onAdminClick={() => setShowLoginOverlay(true)}
@@ -4098,7 +3069,6 @@ const App: React.FC = () => {
             onToggleUserPlaylist={()=>setShowUserPlaylist(v=>!v)}
             onOpenUserPlaylist={()=>setShowUserPlaylist(true)}
             onPendingReview={()=>{if(!isUserLocked&&!isAuthorized){setShowVisitorToast(true);setTimeout(()=>setShowVisitorToast(false),7000);}else{setShowPendingToast(true);setTimeout(()=>setShowPendingToast(false),5000);}}}
-            onUserChange={(user, locked) => { setCurrentUser(user); setIsUserLocked(locked); }}
           />
       )}
 

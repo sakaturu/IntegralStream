@@ -30,7 +30,7 @@ const LoginGate: React.FC<LoginGateProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'Identify' | 'Terminal' | 'Restore'>(defaultTab);
   const [pass, setPass]           = useState('');
-  const [personaName, setPersonaName] = useState(defaultName);
+  const [personaName, setPersonaName] = useState('');
   const [nodeKey, setNodeKey]     = useState('');
   const [remember, setRemember]   = useState(true);
   const [error, setError]         = useState(false);
@@ -40,17 +40,28 @@ const LoginGate: React.FC<LoginGateProps> = ({
   // Photo state
   const [photoPrev, setPhotoPrev] = useState<string>('');
 
-  useEffect(() => {
-    if (defaultName) setPersonaName(defaultName);
-  }, [defaultName]);
 
-  // When tab changes, load the correct pic for that tab — never bleed between tabs
+  // On mount + tab change: load pic for the active tab
   useEffect(() => {
     if (activeTab === 'Terminal') {
       setPhotoPrev(getUserPic(ADMIN_USER));
     } else if (activeTab === 'Identify') {
-      const key = (defaultName || '').trim().toUpperCase().replace(/\s+/g,'_');
-      setPhotoPrev(key ? getUserPic(key) : '');
+      // 1. Try defaultName key first
+      const rawKey = (defaultName || '').trim().toUpperCase().replace(/\s+/g,'_');
+      // Ignore system/default identities — treat them as no name
+      const key = (rawKey && !rawKey.startsWith('NEURAL_NODE')) ? rawKey : '';
+      let pic = key ? getUserPic(key) : '';
+      // 2. Fallback: scan entire picMap for any saved user on this device
+      if (!pic) {
+        const picMap = getPicMap();
+        const userKeys = Object.keys(picMap).filter(k => k !== ADMIN_USER && !k.startsWith('NEURAL_NODE'));
+        if (userKeys.length > 0) {
+          const best = (key && userKeys.find(k => k === key)) || userKeys[0];
+          pic = picMap[best];
+          // Only load the picture — leave name blank so placeholder shows
+        }
+      }
+      setPhotoPrev(pic);
     } else {
       setPhotoPrev('');
     }
@@ -195,11 +206,20 @@ const LoginGate: React.FC<LoginGateProps> = ({
               {activeTab === 'Identify' ? (
                 <input
                   autoFocus required type="text"
-                  placeholder="USERNAME..."
+                  placeholder="Username"
                   value={personaName}
-                  onChange={(e) => setPersonaName(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase();
+                    setPersonaName(val);
+                    // Live-lookup: show saved pic if this name is recognised
+                    const key = val.trim().replace(/\s+/g,'_');
+                    if (key) {
+                      const saved = getUserPic(key);
+                      if (saved) setPhotoPrev(saved);
+                    }
+                  }}
                   disabled={isVerifying}
-                  className={`w-full bg-slate-950/80 border ${error ? 'border-red-500' : 'border-white/10'} rounded-xl px-6 py-4 text-center text-base tracking-[0.2em] text-white focus:outline-none focus:border-blue-500/50 transition-all font-mono placeholder:tracking-normal placeholder:text-[9px] placeholder:font-black`}
+                  className={`w-full bg-slate-950/80 border ${error ? 'border-red-500' : 'border-white/10'} rounded-xl px-6 py-4 text-center text-base tracking-[0.2em] text-white focus:outline-none focus:border-blue-500/50 transition-all font-mono placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-500 placeholder:font-normal`}
                 />
               ) : activeTab === 'Terminal' ? (
                 <input

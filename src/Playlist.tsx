@@ -10,6 +10,7 @@ interface PlaylistProps {
   onRemove: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onToggleLike?: (id: string) => void;
+  isPlaying?: boolean;
   userFavorites: string[];
   onMoveVideo: (id: string, direction: 'up' | 'down') => void;
   onAddRandom: () => void;
@@ -30,6 +31,7 @@ interface PlaylistProps {
   isUserLocked?: boolean;
   onWriteReview?: (videoId: string, rating: number, comment: string) => void;
   onRequestIdentify?: () => void;
+  onEditVideo?: (id: string, prompt: string, category: string) => void;
 }
 
 const COLOR_PALETTE = [
@@ -47,6 +49,7 @@ const Playlist: React.FC<PlaylistProps> = ({
   onRemove, 
   onToggleFavorite, 
   onToggleLike,
+  isPlaying = false,
   userFavorites,
   onMoveVideo,
   onAddRandom,
@@ -67,12 +70,16 @@ const Playlist: React.FC<PlaylistProps> = ({
   isUserLocked = false,
   onWriteReview,
   onRequestIdentify,
+  onEditVideo,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newPrompt, setNewPrompt] = useState('');
   const [newCat, setNewCat] = useState<VideoCategory | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editCat, setEditCat] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [shareSuccessId, setShareSuccessId] = useState<string | null>(null);
   
@@ -130,7 +137,7 @@ const Playlist: React.FC<PlaylistProps> = ({
 
   const allTabs = useMemo(() => {
     const baseTabs = [{ name: 'All' as const }, { name: 'Vault' as const }];
-    const categoryTabs = categories.map(cat => ({ name: cat }));
+    const categoryTabs = [...categories].sort((a,b)=>a.localeCompare(b)).map(cat => ({ name: cat }));
     return [...baseTabs, ...categoryTabs];
   }, [categories]);
 
@@ -222,18 +229,10 @@ const Playlist: React.FC<PlaylistProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
               Library Matrix
             </h3>
-            {(isAuthorized || isUserLocked) ? (
+            {(isAuthorized || isUserLocked) && (
               <button
                 onClick={() => setShowAddForm(!showAddForm)}
                 className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${showAddForm ? 'bg-blue-500/20 border-blue-500/40 text-blue-300 rotate-45' : 'bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40'}`}
-                title="Add video"
-              >
-                <i className="fa-solid fa-plus text-[9px]"/>
-              </button>
-            ) : (
-              <button
-                onClick={() => onRequestIdentify?.()}
-                className="w-6 h-6 rounded-lg border flex items-center justify-center transition-all bg-blue-600/20 border-blue-500/30 text-blue-400 hover:bg-blue-600/40"
                 title="Add video"
               >
                 <i className="fa-solid fa-plus text-[9px]"/>
@@ -274,13 +273,13 @@ const Playlist: React.FC<PlaylistProps> = ({
             <input autoFocus type="text" placeholder="URL..." value={newUrl} onChange={(e) => setNewUrl(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
             <input type="text" placeholder="Title..." value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-white/20" />
             <div className="flex flex-wrap gap-1">
-              {categories.map(cat => (
+              {[...categories].sort((a,b)=>a.localeCompare(b)).map(cat => (
                 <button key={cat} type="button" onClick={() => setNewCat(cat)} className={`px-2 py-1 rounded-md border text-[8px] font-black uppercase transition-all ${newCat === cat ? 'bg-white border-white text-black' : 'bg-white/5 border-white/5 text-slate-500'}`}>{cat}</button>
               ))}
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={resetForm} className="flex-1 bg-white/5 border border-white/10 text-slate-500 py-3 rounded-xl text-[9px] font-black uppercase">Abort</button>
-              <button type="submit" onClick={handleInlineSubmit} disabled={!newUrl || !newCat} className="flex-1 py-3 bg-white text-black rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-30">Inject</button>
+              <button type="button" onClick={(e)=>{e.preventDefault();if(!newUrl||!newCat)return;const clean=(u:string)=>u.replace(/[?#].*/,'');if(videos.some(v=>v.url===newUrl||clean(v.url)===clean(newUrl))){alert('This video is already in the archive.');return;}onAddManualVideo(newUrl,newPrompt||"Trace_X",newCat);resetForm();}} disabled={!newUrl || !newCat} className="flex-1 py-3 bg-white text-black rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-30">Inject</button>
             </div>
           </div>
         )}
@@ -313,12 +312,12 @@ const Playlist: React.FC<PlaylistProps> = ({
               <div className="space-y-1">
                 {videos.filter(v => (v as any).addedBy === currentUser).map(v => (
                   <div key={v.id} className="flex items-center gap-2 px-1.5 py-0.5 border-b border-white/5 last:border-0">
-                    <div className="w-24 h-16 rounded-xl bg-slate-900 overflow-hidden flex-shrink-0 border border-white/5 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}><img src={getThumbnailUrl(v)} className="w-full h-full object-cover" alt=""/></div>
+                    <div className="w-24 h-[54px] rounded-xl bg-slate-900 overflow-hidden flex-shrink-0 border border-white/5 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}><img src={getThumbnailUrl(v)} className="w-full h-full object-cover" alt=""/></div>
                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onSelect(v); onHideUserPlaylist?.(); }}>
                       <p className="text-[14px] font-black uppercase tracking-tight text-blue-400 truncate leading-none">{v.category}</p>
                       <p className="text-[15px] font-bold leading-none truncate text-slate-300">{v.prompt || v.url}</p>
-                      <div className="flex items-center flex-wrap">
-                        <span className="text-orange-500 text-[11px] font-black uppercase">Views::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(v.viewCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Likes::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(v.likeCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{(v.reviews||[]).filter((r:any)=>r.isApproved).length}</span>
+                      <div className="flex items-center flex-nowrap mt-[4px] overflow-hidden">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-1 shrink-0">{v.category}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-orange-500 text-[9px] font-black uppercase shrink-0">Views::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{formatCount(v.viewCount)}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-blue-500 text-[9px] font-black uppercase shrink-0">Likes::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{formatCount(v.likeCount)}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-purple-500 text-[9px] font-black uppercase shrink-0">Reviews::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{(v.reviews||[]).filter((r:any)=>r.isApproved).length}</span>
                       </div>
                     </div>
                     <div className="flex flex-col gap-0 flex-shrink-0">
@@ -344,7 +343,7 @@ const Playlist: React.FC<PlaylistProps> = ({
                 <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-700">Archive Depleted</p>
               </div>
             ) : filteredVideos.map((video) => (
-          <div key={video.id} onClick={() => onSelect(video)} className={`group flex items-center gap-2 px-1.5 py-0.5 rounded-lg transition-all cursor-pointer border relative ${currentVideo?.id === video.id ? 'bg-blue-500/25 border-blue-400/40 shadow-lg shadow-blue-500/10' : 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/25 hover:border-blue-400/40'}`}>
+          <div key={video.id} onClick={() => onSelect(video)} className={`group flex items-center gap-1 px-[10px] py-[6px] rounded-lg transition-all cursor-pointer border relative ${currentVideo?.id === video.id ? (isPlaying ? 'bg-blue-500/25 border-blue-400/40 shadow-lg shadow-blue-500/10' : 'bg-blue-500/25 border-blue-400/40 shadow-lg shadow-blue-500/10 animate-pulse') : 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/25 hover:border-blue-400/40'}`}>
             {confirmingDeleteId === video.id && (
               <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex items-center justify-between px-6 border border-red-500/20" onClick={(e) => e.stopPropagation()}>
                 <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Delete Video?</span>
@@ -354,12 +353,24 @@ const Playlist: React.FC<PlaylistProps> = ({
                 </div>
               </div>
             )}
+            {editingVideoId === video.id && (
+              <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col gap-2 px-4 py-3 border border-blue-500/20" onClick={(e) => e.stopPropagation()}>
+                <input value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} placeholder="Title..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-blue-500/40"/>
+                <div className="flex gap-1 flex-wrap">
+                  {[...categories].sort((a,b)=>a.localeCompare(b)).map(c=><button key={c} onClick={()=>setEditCat(c)} className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${editCat===c?'bg-blue-600 border-blue-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}>{c}</button>)}
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={()=>setEditingVideoId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
+                  <button onClick={()=>{onEditVideo?.(video.id,editPrompt,editCat);setEditingVideoId(null);}} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-[8px] font-black uppercase">Save</button>
+                </div>
+              </div>
+            )}
             {/* Thumbnail */}
-            <div className={`w-24 h-16 rounded-xl flex-shrink-0 border overflow-hidden relative ${currentVideo?.id === video.id ? 'border-blue-500/40' : 'border-white/5'}`}>
+            <div className={`w-24 h-[54px] rounded-xl flex-shrink-0 border overflow-hidden relative ${currentVideo?.id === video.id ? 'border-blue-500/40' : 'border-white/5'}`}>
               <img src={getThumbnailUrl(video)} className="w-full h-full object-cover" alt=""/>
               {currentVideo?.id === video.id && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <i className="fa-solid fa-play text-white text-[10px]"/>
+                  <i className={`fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-[12px]`}/>
                 </div>
               )}
             </div>
@@ -367,15 +378,18 @@ const Playlist: React.FC<PlaylistProps> = ({
             <div className="flex-1 overflow-hidden flex flex-col justify-center gap-0 min-w-0">
               <p className="text-[14px] font-black uppercase tracking-tight text-blue-400 truncate leading-none">{video.category}</p>
               <p className="text-[15px] font-bold leading-none truncate text-slate-300">{video.prompt}</p>
-              <div className="flex items-center flex-wrap">
-                <span className="text-orange-500 text-[11px] font-black uppercase">Views::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(video.viewCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-blue-500 text-[11px] font-black uppercase">Likes::</span><span className="text-white text-[11px] font-black ml-0.5">{formatCount(video.likeCount)}</span><span className="text-slate-700 text-[11px] mx-0.5">|</span><span className="text-purple-500 text-[11px] font-black uppercase">Reviews::</span><span className="text-white text-[11px] font-black ml-0.5">{(video.reviews?.filter(r=>r.isApproved)?.length||0)}</span>
+              <div className="flex items-center flex-nowrap mt-[4px] overflow-hidden">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-1 shrink-0">{video.category}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-orange-500 text-[9px] font-black uppercase shrink-0">Views::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{formatCount(video.viewCount)}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-blue-500 text-[9px] font-black uppercase shrink-0">Likes::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{formatCount(video.likeCount)}</span><span className="text-slate-700 text-[9px] mx-0.5 shrink-0">|</span><span className="text-purple-500 text-[9px] font-black uppercase shrink-0">Reviews::</span><span className="text-white text-[9px] font-black ml-0.5 shrink-0">{(video.reviews?.filter(r=>r.isApproved)?.length||0)}</span>
               </div>
             </div>
             {/* Action buttons */}
             <div className="flex flex-col flex-shrink-0 self-stretch relative w-6">
               {((video.reviews||[]).some((r:any)=>r.user===currentUser) ? <button className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[11px]"/></button> : <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onWriteReview?.(video.id, 0, ''); }} className="absolute top-[3px] left-0 w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[11px]"/></button>)}
               <div className="flex flex-col items-center justify-center flex-1 gap-0.5 pt-7 pb-7">
-                <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onToggleLike?.(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${((video as any).likedBy||[]).includes(currentUser) ? 'text-blue-400' : 'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((video as any).likedBy||[]).includes(currentUser) ? 'solid' : 'regular'} fa-thumbs-up text-[11px]`}/></button>
+                {isAuthorized
+                  ? <button onClick={(e) => { e.stopPropagation(); setEditingVideoId(video.id); setEditPrompt(video.prompt||''); setEditCat(video.category||''); }} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
+                  : <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onToggleLike?.(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${((video as any).likedBy||[]).includes(currentUser) ? 'text-blue-400' : 'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((video as any).likedBy||[]).includes(currentUser) ? 'solid' : 'regular'} fa-thumbs-up text-[11px]`}/></button>
+                }
                 <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked&&!isAuthorized){onRequestIdentify?.();return;} onToggleFavorite(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${userFavorites.includes(video.id) ? 'text-pink-400' : 'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${userFavorites.includes(video.id) ? 'solid' : 'regular'} fa-heart text-[11px]`}/></button>
               </div>
               {(isAuthorized||(isUserLocked&&(video as any).addedBy===currentUser)) && <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>}
