@@ -10,6 +10,7 @@ interface VideoPlayerProps {
   onToggleDislike?: () => void;
   onToggleFavorite?: () => void;
   onWriteReview?: () => void;
+  onEnded?: () => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -21,6 +22,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onToggleDislike,
   onToggleFavorite,
   onWriteReview,
+  onEnded,
 }) => {
   const iframeRef   = useRef<HTMLIFrameElement>(null);
   const [hovered, setHovered]     = useState(false);
@@ -56,7 +58,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setShowPauseScreen(false);
     // autoplay=1 always — let it start, we control pause via postMessage + overlay
     setIframeSrc(
-      `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=${isPlaying ? 1 : 0}&controls=0&rel=0&playsinline=1&enablejsapi=1&modestbranding=1`
+      `https://www.youtube.com/embed/${ytId}?autoplay=${isPlaying ? 1 : 0}&controls=1&rel=0&playsinline=1&enablejsapi=1&modestbranding=1&origin=${encodeURIComponent(window.location.origin)}`
     );
   }, [ytId]);
 
@@ -66,16 +68,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
         if (d?.event === 'onStateChange') {
+          console.log('[VP] stateChange info=', d?.info);
           const s = Number(d?.info);
           if (s === 1) { setShowPauseScreen(false); onPlayStateChange(true); }
           if (s === 2) { onPlayStateChange(false); }
-          if (s === 0) { onPlayStateChange(false); }
+          if (s === 0) { onPlayStateChange(false); onEnded?.(); }
         }
       } catch {}
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [onPlayStateChange]);
+  }, [onPlayStateChange, onEnded]);
 
   // When isPlaying changes from parent — use postMessage, NO iframe reload
   const prevIsPlaying = useRef<boolean | null>(null);
