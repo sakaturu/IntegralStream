@@ -1711,7 +1711,7 @@ const VisualizerCanvas = ({onActivate, active=true, initialMode=0, autoStart=fal
   return (
     <div ref={vizRootRef} className="viz-root absolute inset-0 overflow-hidden" style={{background:'transparent',pointerEvents:'none'}}>
       <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:active?1:0,pointerEvents:'none'}}/>
-      <canvas ref={eqRef} style={{position:'absolute',bottom:0,left:0,right:0,width:'100%',height:56,pointerEvents:'none',opacity:active?1:0}}/>
+      <canvas ref={eqRef} style={{position:'absolute',bottom:0,left:0,right:0,width:'100%',height:56,pointerEvents:'none',opacity:0}}/>
 
       {/* ── visualizer group/mode picker — hides after 3s of no mouse activity ── */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1" style={{zIndex:100,opacity:pickerVisible?1:0,transition:'opacity 0.5s ease',pointerEvents:pickerVisible?'auto':'none'}} onClick={e=>e.stopPropagation()}>
@@ -2296,15 +2296,14 @@ const MusicApp: React.FC<MusicAppProps> = ({
   useEffect(()=>{ _userTracksRef.current = userTracks; }, [userTracks]);
 
   const lastNextTrackTime = useRef<number>(0);
+  const _currentTrackStartRef = useRef<number>(Date.now());
   const trackPlayStartTime = useRef<number>(0);
   const playNextTrack = useCallback(() => {
     const now = Date.now();
-    if (now - lastNextTrackTime.current < 3000) return; // cooldown 3s
-    if (now - trackPlayStartTime.current < 10000) return; // must play 10s first
     lastNextTrackTime.current = now;
     const allT = [..._tracksRef.current, ..._userTracksRef.current];
     const idx = allT.findIndex(t => t.id === _currentTrackIdRef.current);
-    if (idx >= 0) { const next = allT[(idx + 1) % allT.length]; setCurrentTrackId(next.id); setIsPlaying(true); setShowVisualizer(v=>v); setVizKey(k=>k+1); }
+    if (idx >= 0) { const next = allT[(idx + 1) % allT.length]; setCurrentTrackId(next.id); setIsPlaying(true); setShowVisualizer(v=>v); setVizKey(k=>k+1); _currentTrackStartRef.current=Date.now(); }
     else if (allT.length > 0) { setCurrentTrackId(allT[0].id); setIsPlaying(true); setShowVisualizer(v=>v); setVizKey(k=>k+1); }
   }, []);
 
@@ -2314,10 +2313,20 @@ const MusicApp: React.FC<MusicAppProps> = ({
         const d=typeof e.data==='string'?JSON.parse(e.data):e.data;
         if(d?.method==='ready'&&e.origin.includes('soundcloud')){
           (e.source as Window)?.postMessage(JSON.stringify({method:'addEventListener',value:'finish'}),'*');
+          (e.source as Window)?.postMessage(JSON.stringify({method:'getDuration'}),'*');
           return;
         }
-        // SC finish event disabled — clicking waveform triggers it falsely
-        // if(d?.method==='finish'&&e.origin.includes('soundcloud')){ playNextTrack(); return; }
+        if(d?.method==='finish'&&e.origin.includes('soundcloud')){
+          const elapsed=Date.now()-(_currentTrackStartRef.current||0);
+          if(elapsed>10000) playNextTrack();
+          return;
+        }
+        if(d?.method==='getDuration'&&e.origin.includes('soundcloud')&&d?.value>0){
+          const ms=Number(d.value);
+          if(scTimerRef.current){ clearTimeout(scTimerRef.current); scTimerRef.current=null; }
+          scTimerRef.current=setTimeout(()=>{ playNextTrack(); }, ms+2000);
+          return;
+        }
         if(d?.event==='onStateChange'&&d?.info===0){
           const ytM=document.getElementById('yt-player') as HTMLIFrameElement|null;
           if(ytM&&e.source===ytM.contentWindow){ playNextTrack(); return; }
@@ -2328,7 +2337,32 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=>window.removeEventListener('message',onMsg);
   },[playNextTrack]);
 
-    // SoundCloud duration-timer fallback DISABLED — using SC finish event only
+    // SoundCloud duration-timer
+  const scTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  useEffect(()=>{
+    if(scTimerRef.current){ clearTimeout(scTimerRef.current); scTimerRef.current=null; }
+    if(!currentTrack||!isPlaying) return;
+    if(!currentTrack.url?.includes('soundcloud.com')) return;
+    let cancelled=false;
+    const startedAt=Date.now();
+    let scUrl=currentTrack.url;
+    try{ scUrl=new URL(currentTrack.url).origin+new URL(currentTrack.url).pathname; }catch{}
+    fetch(`https://soundcloud.com/oembed?url=${encodeURIComponent(scUrl)}&format=json`)
+      .then(r=>r.json())
+      .then(d=>{
+        if(cancelled) return;
+        const ms=typeof d?.duration==='number'&&d.duration>5000?d.duration:0;
+        const elapsed=Date.now()-startedAt;
+        const wait=ms?Math.max(2000,ms-elapsed+2000):Math.max(2000,4*60*1000-elapsed+2000);
+        scTimerRef.current=setTimeout(()=>{ if(!cancelled) playNextTrack(); },wait);
+      })
+      .catch(()=>{
+        if(cancelled) return;
+        const wait=3*60*1000;
+        scTimerRef.current=setTimeout(()=>{ if(!cancelled) playNextTrack(); },wait);
+      });
+    return ()=>{ cancelled=true; if(scTimerRef.current){clearTimeout(scTimerRef.current);scTimerRef.current=null;} };
+  },[currentTrack?.id,isPlaying,playNextTrack]);
 
   const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
   const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
@@ -2511,7 +2545,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   // thumbnails rendered via <TrackThumbnail> component directly
   const handleSaveEdit=(id:string)=>{
     const update = (t:MusicTrack) => t.id===id ? {...t, artist:editArtist.trim()||t.artist, title:editTitle.trim()||t.title, category:editCategory||t.category} : t;
-    setTracks(p=>{ const updated=p.map(update); saveMusicToFirestore(updated); return updated; });
+    setTracks(p=>p.map(update));
     setUserTracks(p=>p.map(update));
     setEditingTrackId(null);
   };
@@ -3091,11 +3125,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
                   <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
-                    <video autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video-1.mp4"/>
-                    <div style={{position:'relative',zIndex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:14}}>
-                      <i className="fa-solid fa-music" style={{fontSize:36,color:'#fff',opacity:0.7,textShadow:'0 2px 12px rgba(0,0,0,0.8)'}}/>
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white" style={{textShadow:'0 1px 8px rgba(0,0,0,0.9)'}}>Select a Track to Begin</p>
-                    </div>
+                    <video autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" crossOrigin="anonymous"/>
+
                   </div>
                 )}
 
@@ -3124,74 +3155,53 @@ const MusicApp: React.FC<MusicAppProps> = ({
                     />
                   </div>
                 )}
-                {/* YouTube/SoundCloud visible player — always mounted while playing, visualizer sits on top */}
+                {/* SC iframe — audio only, waveform shows at bottom when playing */}
                 {currentTrack&&(type as string)!=='audiomack'&&(
-                  <div style={{position:'absolute',inset:0,zIndex:5,opacity:isPlaying?1:0,pointerEvents:isPlaying?'auto':'none'}}>
-
-                    {type==='soundcloud'&&(
-                      <div style={{position:'absolute',inset:0,zIndex:6,overflow:'hidden'}}>
-                        <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video-1.mp4" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                        <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.15),rgba(0,0,0,0.7))'}}/>
-                        <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'20px',display:'flex',flexDirection:'column',gap:6}}>
-                          <div style={{display:'flex',alignItems:'flex-end',gap:3,height:28,marginBottom:2}}>{Array.from({length:24},(_,i)=>{const h=20+Math.abs(Math.sin(i*0.7+0.9)*Math.cos(i*0.4))*80;return <div key={i} style={{width:3,borderRadius:2,background:`hsl(${200+i*6},90%,65%)`,height:`${h}%`,animation:`scBar ${0.5+i*0.04}s ease-in-out infinite alternate`,animationDelay:`${i*0.06}s`}}/>;})}</div>
-                          <p style={{color:'rgba(255,255,255,0.7)',fontWeight:900,fontSize:10,textTransform:'uppercase',letterSpacing:'0.2em',margin:0}}>{currentTrack.artist}</p>
-                          <p style={{color:'#fff',fontWeight:700,fontSize:15,margin:0,textShadow:'0 1px 10px rgba(0,0,0,0.9)'}}>{currentTrack.title}</p>
-                          <div style={{display:'flex',alignItems:'center',gap:5,marginTop:2}}><i className="fa-brands fa-soundcloud" style={{fontSize:13,color:'#ff5500'}}/><span style={{color:'rgba(255,255,255,0.35)',fontWeight:700,fontSize:8,textTransform:'uppercase',letterSpacing:'0.15em'}}>SoundCloud</span></div>
-                        </div>
-                      </div>
-                    )}
-                    {type==='youtube'&&(
-                      <div style={{position:'absolute',inset:0,zIndex:6,overflow:'hidden'}}>
-                        <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video-1.mp4" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                        <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.15),rgba(0,0,0,0.7))'}}/>
-                        <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'20px',display:'flex',flexDirection:'column',gap:6}}>
-                          <div style={{display:'flex',alignItems:'flex-end',gap:3,height:28,marginBottom:2}}>{Array.from({length:24},(_,i)=>{const h=20+Math.abs(Math.sin(i*0.7+0.9)*Math.cos(i*0.4))*80;return <div key={i} style={{width:3,borderRadius:2,background:`hsl(${200+i*6},90%,65%)`,height:`${h}%`,animation:`scBar ${0.5+i*0.04}s ease-in-out infinite alternate`,animationDelay:`${i*0.06}s`}}/>;})}</div>
-                          <p style={{color:'rgba(255,255,255,0.7)',fontWeight:900,fontSize:10,textTransform:'uppercase',letterSpacing:'0.2em',margin:0}}>{currentTrack.artist}</p>
-                          <p style={{color:'#fff',fontWeight:700,fontSize:15,margin:0,textShadow:'0 1px 10px rgba(0,0,0,0.9)'}}>{currentTrack.title}</p>
-                          <div style={{display:'flex',alignItems:'center',gap:5,marginTop:2}}><i className="fa-solid fa-music" style={{fontSize:13,color:'#a855f7'}}/><span style={{color:'rgba(255,255,255,0.35)',fontWeight:700,fontSize:8,textTransform:'uppercase',letterSpacing:'0.15em'}}>YouTube Music</span></div>
-                        </div>
-                      </div>
-                    )}
-                    <iframe
-                      key={`vis-${currentTrackId}`}
-                      id="music-main-player"
-                      src={embedUrl}
-                      width="100%" height="100%"
-                      style={{width:'100%',height:'100%',border:'none',display:'block',position:'relative',zIndex:5,opacity:0}}
-                      allow="autoplay; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
+                  <iframe
+                    key={`vis-${currentTrackId}`}
+                    id="music-main-player"
+                    src={embedUrl}
+                    width="100%"
+                    style={{width:'100%',height:'100%',border:'none',display:'block',position:'absolute',inset:0,zIndex:9,opacity:(type==='soundcloud'&&isPlaying)?1:0,pointerEvents:(type==='soundcloud'&&isPlaying)?'auto':'none',clipPath:'inset(calc(100% - 80px) 0 0 0)',transition:'opacity 0.5s ease 3s'}}
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                  />
                 )}
-                {/* When paused: show default image. When playing: show track thumbnail */}
-
+                {/* Paused: show track thumbnail dimmed */}
                 {currentTrack&&(type as string)!=='audiomack'&&!isPlaying&&(
-                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:6}}>
-                    <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video-1.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:5}}>
+                    <video autoPlay muted loop playsInline preload="auto" src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 )}
+                {/* Playing: track thumbnail */}
                 {currentTrack&&(type as string)!=='audiomack'&&isPlaying&&(
-                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:7}}>
+                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:5}}>
                     <img src={getThumbnailUrl(currentTrack)} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.35,filter:'blur(30px)',transform:'scale(1.08)'}}/>
                     <img src={getThumbnailUrl(currentTrack)} alt={currentTrack.title} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
-                    {/* Progress bar overlay */}
-                    <MusicProgressBar trackId={currentTrackId||''} isPlaying={isPlaying} trackUrl={currentTrack.url}/>
+                    {type==='youtube'&&(
+                      <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.1),rgba(0,0,0,0.6))'}}>
+                        <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'20px',display:'flex',flexDirection:'column',gap:6}}>
+                          <div style={{display:'flex',alignItems:'flex-end',gap:3,height:28,marginBottom:2}}>{Array.from({length:24},(_,i)=>{const h=20+Math.abs(Math.sin(i*0.7+0.9)*Math.cos(i*0.4))*80;return <div key={i} style={{width:3,borderRadius:2,background:`hsl(${200+i*6},90%,65%)`,height:`${h}%`,animation:`scBar ${0.5+i*0.04}s ease-in-out infinite alternate`,animationDelay:`${i*0.06}s`}}/>;})}</div>
+                          <p style={{color:'rgba(255,255,255,0.7)',fontWeight:900,fontSize:10,textTransform:'uppercase',letterSpacing:'0.2em',margin:0}}>{currentTrack.artist}</p>
+                          <p style={{color:'#fff',fontWeight:700,fontSize:15,margin:0,textShadow:'0 1px 10px rgba(0,0,0,0.9)'}}>{currentTrack.title}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
+                {/* Dark gradient at bottom to blend SC waveform with image */}
+                {currentTrack&&type==='soundcloud'&&isPlaying&&(
+                  <div style={{position:'absolute',bottom:0,left:0,right:0,height:'100px',zIndex:8,background:'linear-gradient(to top,rgba(0,0,0,0.7) 0%,transparent 100%)',pointerEvents:'none'}}/>
+                )}
                 {/* Visualizer — always mounted when track present, shown/hidden via opacity only */}
-                <div style={{position:'absolute',inset:0,zIndex:10,opacity:showVisualizer?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}} onClick={e=>e.stopPropagation()}>
-                  {currentTrack && <VisualizerCanvas key={vizKey} onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} isPlaying={isPlaying}/>}
+                <div style={{position:'absolute',inset:0,zIndex:10,opacity:(showVisualizer&&type!=='soundcloud')?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}} onClick={e=>e.stopPropagation()}>
+                  {currentTrack && <VisualizerCanvas key={vizKey} onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} isPlaying={isPlaying} hideEq={type==='soundcloud'}/>}
                 </div>
                 {/* Open visualizer button */}
                 {(currentTrack&&isPlaying&&!showVisualizer)&&(<VisualizerPickerOnly onActivate={(m)=>{setVizInitialMode(m??0);setVizKey(k=>k+1);setShowVisualizer(true);}}/>)}
               </div>
             </div>
-            {/* Progress bar below player */}
-            {currentTrack&&(
-              <div className="px-8 w-full mt-2" style={{position:'sticky',bottom:0,zIndex:50,background:'rgba(0,0,0,0.8)',backdropFilter:'blur(10px)'}} onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()}>
-                <MusicProgressBar trackId={currentTrackId||''} isPlaying={isPlaying} trackUrl={currentTrack.url}/>
-              </div>
-            )}
+            
             <div className="w-full mt-2 px-8">
               <div className="bg-white/5 border border-white/5 rounded-3xl flex flex-wrap items-center px-8 py-4 w-full gap-3">
                 {currentTrack?(<><Tooltip label={`${currentTrack.category} · ${tracks.filter(t=>t.category===currentTrack.category).length} tracks`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span></Tooltip><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{displayName(currentUser)}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
@@ -3513,8 +3523,6 @@ const App: React.FC = () => {
   });
 
   const [showMusic, setShowMusic] = useState(false);
-  const showMusicRef = useRef(false);
-  useEffect(()=>{ showMusicRef.current = showMusic; },[showMusic]);
   const [showUserPlaylist, setShowUserPlaylist] = useState(false);
   const openMusicWithPlaylist = () => {
     setShowMusic(true);
@@ -3948,7 +3956,6 @@ const App: React.FC = () => {
     const startedAt = Date.now();
     const advance = () => {
       if(cancelled||videoEndedRef.current) return;
-      if(showMusicRef.current) return;
       videoEndedRef.current = true;
       const vid = currentVideoIdRef.current;
       setVideoCrossfading(true);
@@ -3968,14 +3975,14 @@ const App: React.FC = () => {
           const iso=(d?.items?.[0]?.contentDetails?.duration)||'';
           const m=iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
           const dur=m?((Number(m[1]||0)*3600)+(Number(m[2]||0)*60)+Number(m[3]||0))*1000:0;
-          const elapsed=Math.max(Date.now()-startedAt, scSeekTimeRef.current*1000);
+          const elapsed=Date.now()-startedAt;
           const wait=dur>5000?Math.max(2000,dur-elapsed+2000):10*60*1000;
           console.log('[VIDEO] dur:'+(dur/1000)+'s wait:'+Math.round(wait/1000)+'s');
           videoTimerRef.current=setTimeout(()=>{ clearInterval(pollInterval); advance(); },wait);
         })
-        .catch(()=>{ if(!cancelled) videoTimerRef.current=setTimeout(()=>{ clearInterval(pollInterval); advance(); },10*60*1000); });
+        .catch(()=>{ if(!cancelled){ console.log('[VIDEO] API failed, using 5min fallback'); videoTimerRef.current=setTimeout(()=>{ clearInterval(pollInterval); advance(); },5*60*1000); } });
     } else {
-      videoTimerRef.current = setTimeout(()=>{ clearInterval(pollInterval); advance(); }, 10*60*1000);
+      console.log('[VIDEO] no YT id, using 5min fallback'); videoTimerRef.current = setTimeout(()=>{ clearInterval(pollInterval); advance(); }, 5*60*1000);
     }
     const onMsg=(e:MessageEvent)=>{
       try {
@@ -4223,27 +4230,16 @@ const App: React.FC = () => {
             <div className="px-8 w-full" ref={playerContainerRef}>
                <div onClick={()=>{if(currentVideoId) setIsPlaying(p=>!p);}} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentVideoId?'pointer':'default'}}>
                 {currentVideo ? (
+                  <>
+                  {/* Click overlay to pause/resume — always on top */}
+                  <div style={{position:'absolute',inset:0,zIndex:50,cursor:'pointer',background:'transparent'}} onClick={(e)=>{e.stopPropagation();setIsPlaying(p=>!p);}}/>
                   <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
                   <VideoPlayer key={currentVideo.id} video={currentVideo} isFavorite={currentUserFavorites.includes(currentVideo.id)} isPlaying={isPlaying} onPlayStateChange={setIsPlaying} onEnded={()=>{ videoEndedRef.current=false; const vid=currentVideoIdRef.current; setVideoCrossfading(true); setTimeout(()=>{ setVideos(prev=>{ const idx=prev.findIndex(v=>v.id===vid); if(idx>=0){const next=prev[(idx+1)%prev.length];setCurrentVideoId(next.id);setIsPlaying(true);} return prev; }); setVideoCrossfading(false); },600); }} onToggleLike={() => handleToggleLike(currentVideo.id)} onToggleDislike={() => handleToggleDislike(currentVideo.id)} onToggleFavorite={() => handleToggleFavorite(currentVideo.id)} onWriteReview={() => { setReviewInitialTab('Write'); setActiveSecondaryView('reviews'); }} />
                   </div>
+                  </>
                 ) : videos.length > 0 ? (
-                  /* Default: show first video thumbnail full-bleed */
-                  <div className="absolute inset-0 cursor-pointer" onClick={() => { setCurrentVideoId(videos[0].id); setIsPlaying(true); }}>
-                    {(() => {
-                      const firstId = videos[0].url?.match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
-                      const thumb = firstId ? `https://img.youtube.com/vi/${firstId}/hqdefault.jpg` : '';
-                      return thumb ? (
-                        <>
-                          <img src={thumb} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',filter:'blur(6px)',transform:'scale(1.08)',opacity:0.4}}/>
-                          <img src={thumb} alt={videos[0].prompt||''} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
-                        </>
-                      ) : <div className="absolute inset-0 bg-slate-950"/>;
-                    })()}
-                    <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.3) 0%,rgba(0,0,0,0.05) 40%,rgba(0,0,0,0.65) 100%)'}}/>
-                    <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12}}>
-                      <i className="fa-solid fa-play" style={{fontSize:40,color:'#fff',opacity:0.8,textShadow:'0 2px 16px rgba(0,0,0,0.9)'}}/>
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white" style={{textShadow:'0 1px 8px rgba(0,0,0,0.9)'}}>Click to Play</p>
-                    </div>
+                  <div className="absolute inset-0" onClick={() => { setCurrentVideoId(videos[0].id); setIsPlaying(true); }}>
+                    <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
