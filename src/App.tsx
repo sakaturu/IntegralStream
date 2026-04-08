@@ -4241,10 +4241,6 @@ const App: React.FC = () => {
   return (
     <div className="h-screen bg-transparent text-slate-100 flex flex-col font-sans relative selection:bg-blue-500/30 overflow-hidden">
       <style>{`@keyframes scBar{from{transform:scaleY(0.2);opacity:0.5}to{transform:scaleY(1);opacity:1}}@keyframes scPulse{0%,100%{transform:scale(1)}25%{transform:scale(1.04) rotate(0.4deg)}50%{transform:scale(1.02) rotate(-0.3deg)}75%{transform:scale(1.03) rotate(0.2deg)}}`}</style>
-      {/* DEBUG BANNER - remove after testing */}
-      <div style={{position:'fixed',top:0,left:0,right:0,zIndex:99999,background:'red',color:'white',fontSize:11,padding:'4px 8px',fontFamily:'monospace'}}>
-        own={window.location.href} | parent={(()=>{try{return window.parent?.location?.href}catch{return 'cross-origin'}})()}) | trackParam={_INITIAL_TRACK_PARAM||'null'} | showMusic={String(showMusic)}
-      </div>
       {/* Pending Review Toast */}
       {showPendingToast && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
