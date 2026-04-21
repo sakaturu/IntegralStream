@@ -34,7 +34,7 @@ const COLOR_PALETTE = [
 interface MusicTrack {
   id:string; artist:string; title:string; url:string; thumbnail?:string;
   category:string; addedBy:string; timestamp:number; playCount:number; likeCount:number;
-  isFavorite?:boolean;
+  isFavorite?:boolean; galleryImages?:string[];
 }
 interface MusicReview {
   id:string; trackId:string; user:string; rating:number; comment:string;
@@ -47,12 +47,10 @@ interface MusicAppProps {
   showUserPlaylist?:boolean; onToggleUserPlaylist?:()=>void; onOpenUserPlaylist?:()=>void;
   onPendingReview?:()=>void;
   onUserChange?:(user:string, locked:boolean)=>void;
-  initialTrackId?:string;
 }
 
 // ─── Shared auth constants (must match APP.tsx) ─────────────────────────────
 const AUTH_KEY       = 'integral_v411_auth';
-const SITE_URL       = 'https://integralstream.vercel.app';
 const ADMIN_PASSWORD = 'ADMIN';
 const USER_KEY       = 'integral_active_user_v6';
 const USER_LOCKED_KEY= 'integral_user_locked_v6';
@@ -241,6 +239,57 @@ const ALL_MODES   = VIZ_GROUPS.flatMap(g => g.modes);
 const GROUP_COLORS= ['#a855f7','#06b6d4','#ef4444','#f59e0b','#ec4899','#3b82f6','#10b981','#60a5fa'];
 
 // Picker-only: shows the mode buttons without the black canvas background
+const GallerySlideshow = ({images,onClose,isAuthorized,onAdd,onDelete}:{images:string[];onClose:()=>void;isAuthorized:boolean;onAdd:(url:string)=>void;onDelete:(i:number)=>void;}) => {
+  const [idx,setIdx] = React.useState(0);
+  const [inputUrl,setInputUrl] = React.useState('');
+  const safeIdx = images.length>0 ? idx%images.length : 0;
+  React.useEffect(()=>{
+    if(images.length<=1) return;
+    const t = setInterval(()=>setIdx(i=>(i+1)%images.length),4000);
+    return ()=>clearInterval(t);
+  },[images.length]);
+  return (
+    <div style={{position:'absolute',inset:0,zIndex:25,background:'#000',display:'flex',flexDirection:'column',borderRadius:'2rem',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+      {/* Close button */}
+      <button onClick={e=>{e.stopPropagation();onClose();}} style={{position:'absolute',top:10,right:10,zIndex:50,width:28,height:28,borderRadius:'50%',background:'rgba(0,0,0,0.7)',border:'1px solid rgba(255,255,255,0.3)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}><i className="fa-solid fa-xmark" style={{fontSize:11}}/></button>
+      {/* Main image — full 100% width and height of display */}
+      <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+        {images.length>0?(
+          <>
+            <img key={safeIdx} src={images[safeIdx]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+            {images.length>1&&<>
+              <button onClick={e=>{e.stopPropagation();setIdx(i=>(i-1+images.length)%images.length);}} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',width:36,height:36,borderRadius:'50%',background:'rgba(0,0,0,0.55)',border:'1px solid rgba(255,255,255,0.25)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',zIndex:10}}><i className="fa-solid fa-chevron-left" style={{fontSize:12}}/></button>
+              <button onClick={e=>{e.stopPropagation();setIdx(i=>(i+1)%images.length);}} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',width:36,height:36,borderRadius:'50%',background:'rgba(0,0,0,0.55)',border:'1px solid rgba(255,255,255,0.25)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',zIndex:10}}><i className="fa-solid fa-chevron-right" style={{fontSize:12}}/></button>
+              <div style={{position:'absolute',bottom:8,left:'50%',transform:'translateX(-50%)',display:'flex',gap:5,zIndex:10}}>{images.map((_,i)=><button key={i} onClick={e=>{e.stopPropagation();setIdx(i);}} style={{width:i===safeIdx?16:6,height:6,borderRadius:3,background:i===safeIdx?'#fff':'rgba(255,255,255,0.35)',border:'none',cursor:'pointer',padding:0,transition:'all 0.3s'}}/>)}</div>
+            </>}
+          </>
+        ):(
+          <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,color:'#475569'}}>
+            <i className="fa-solid fa-images" style={{fontSize:40}}/>
+            <p style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:'0.12em'}}>{isAuthorized?'Paste an image URL below':'No images yet'}</p>
+          </div>
+        )}
+      </div>
+      {/* Thumbnail strip */}
+      <div style={{display:'flex',gap:6,padding:'6px 10px',background:'rgba(0,0,0,0.85)',overflowX:'auto',flexShrink:0,alignItems:'center',minHeight:52}}>
+        {images.map((img,i)=>(
+          <div key={i} onClick={e=>{e.stopPropagation();setIdx(i);}} style={{flexShrink:0,width:52,height:38,borderRadius:6,overflow:'hidden',border:i===safeIdx?'2px solid #a855f7':'2px solid rgba(255,255,255,0.1)',cursor:'pointer',position:'relative',transition:'border-color 0.3s'}}>
+            <img src={img} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+            {isAuthorized&&<button onClick={e=>{e.stopPropagation();onDelete(i);}} style={{position:'absolute',top:2,right:2,width:14,height:14,borderRadius:'50%',background:'#dc2626',color:'#fff',border:'none',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:7}}>✕</button>}
+          </div>
+        ))}
+      </div>
+      {/* URL input — admin only */}
+      {isAuthorized&&(
+        <div style={{display:'flex',gap:8,padding:'8px 12px',background:'rgba(0,0,0,0.9)',borderTop:'1px solid rgba(255,255,255,0.08)',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+          <input value={inputUrl} onChange={e=>setInputUrl(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&inputUrl.trim()){onAdd(inputUrl.trim());setInputUrl('');}}} placeholder="Paste image URL..." style={{flex:1,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,padding:'7px 12px',color:'#fff',fontSize:11,outline:'none'}}/>
+          <button onClick={e=>{e.stopPropagation();if(!inputUrl.trim())return;onAdd(inputUrl.trim());setInputUrl('');}} style={{padding:'7px 18px',background:'#7c3aed',color:'#fff',borderRadius:8,fontSize:10,fontWeight:900,textTransform:'uppercase',border:'none',cursor:'pointer'}}>ADD</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const VisualizerPickerOnly = ({onActivate}:{onActivate?:(mode?:number)=>void}) => {
   const [mode, setMode] = React.useState(0);
   const [groupOpen, setGroupOpen] = React.useState<number|null>(null);
@@ -1957,7 +2006,7 @@ const sanitiseTrack = (tr: any) => {
 const displayName = (user: string) =>
   !user || user.startsWith('NEURAL_NODE') ? 'Username' : user.replace(/_/g, ' ');
 
-const MusicProgressBar: React.FC<{trackId:string;isPlaying:boolean;trackUrl:string;visible:boolean}> = ({trackId,isPlaying,trackUrl,visible}) => {
+const MusicProgressBar: React.FC<{trackId:string;isPlaying:boolean;trackUrl:string}> = ({trackId,isPlaying,trackUrl}) => {
   const [elapsed, setElapsed] = React.useState(0);
   const [duration, setDuration] = React.useState(0);
   const startRef = React.useRef<number>(0);
@@ -2021,10 +2070,7 @@ const MusicProgressBar: React.FC<{trackId:string;isPlaying:boolean;trackUrl:stri
   const activeBars = Math.round(pct * BARS);
 
   return (
-    <div
-      style={{position:'absolute',bottom:0,left:0,right:0,zIndex:20,padding:'0 16px 10px',background:visible?'linear-gradient(to top,rgba(0,0,0,0.9),transparent)':'transparent',opacity:visible?1:0,transition:'opacity 0.25s ease'}}
-      onClick={e=>e.stopPropagation()}
-    >
+    <div style={{padding:'0 16px 10px',background:'linear-gradient(to top,rgba(0,0,0,0.9),transparent)'}}>
       <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
         <span style={{color:'#ff9500',fontSize:10,fontWeight:900,letterSpacing:'0.1em'}}>{fmt(elapsed)}</span>
         <span style={{color:'rgba(255,255,255,0.3)',fontSize:10,fontWeight:700}}>{duration>0?fmt(duration):'--:--'}</span>
@@ -2051,7 +2097,7 @@ const MusicProgressBar: React.FC<{trackId:string;isPlaying:boolean;trackUrl:stri
 
 
 const MusicApp: React.FC<MusicAppProps> = ({
-  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{}, onOpenUserPlaylist=()=>{}, onPendingReview=()=>{}, onUserChange=(_u:string,_l:boolean)=>{}, initialTrackId,
+  currentUser: currentUserProp, isAuthorized: isAuthorizedProp, onClose, isUserLocked: isUserLockedProp=false, onLogout=()=>{}, onAdminClick=()=>{}, showUserPlaylist=false, onToggleUserPlaylist=()=>{}, onOpenUserPlaylist=()=>{}, onPendingReview=()=>{}, onUserChange=(_u:string,_l:boolean)=>{},
 }) => {
   // ── Identity: read/write same keys as APP.tsx ─────────────────────────────
   const [currentUser,  setCurrentUser]  = useState<string>(()=> localStorage.getItem(USER_KEY) || currentUserProp);
@@ -2149,7 +2195,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   });;
   const [reviews,    setReviews]    = useState<MusicReview[]>(()=>{const s=localStorage.getItem(MUSIC_REVIEWS_KEY);return s?JSON.parse(s):[];});
 
-  const [currentTrackId, setCurrentTrackId] = useState<string|undefined>(undefined);
+  const [currentTrackId, setCurrentTrackId] = useState<string|undefined>();
   const [isPlaying,  setIsPlaying]  = useState(false);
   const [activeTab,  setActiveTab]  = useState('All');
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
@@ -2178,12 +2224,14 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [newGenre,   setNewGenre]   = useState('');
   const [newGenreColor,setNewGenreColor]=useState(COLOR_PALETTE[0][0]);
   const [confirmDeleteId,setConfirmDeleteId]=useState<string|null>(null);
-  const [shareTrackId, setShareTrackId] = useState<string|null>(null);
-  const [shareMusicOpen, setShareMusicOpen] = useState(false);
   const [editingTrackId,setEditingTrackId]=useState<string|null>(null);
   const [editArtist,setEditArtist]=useState('');
   const [editTitle,setEditTitle]=useState('');
   const [editCategory,setEditCategory]=useState('');
+  const [galleryTrackId,setGalleryTrackId]=useState<string|null>(null);
+  const [galleryInputUrl,setGalleryInputUrl]=useState('');
+  const [editUrl,setEditUrl]=useState('');
+  const [editThumbnail,setEditThumbnail]=useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [queueTab,   setQueueTab]   = useState<'All'|'Queue'>('All');
   const [showVisualizer, setShowVisualizer] = useState(false);
@@ -2232,21 +2280,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     return () => { unsubTracks(); };
   }, []);
-
-  // Auto-play track from URL param — runs whenever tracks changes until found
-  const _urlTrackHandled = React.useRef(false);
-  useEffect(() => {
-    const paramId = initialTrackId;
-    if (!paramId) return;
-    if (_urlTrackHandled.current) return;
-    if (tracks.length === 0) return;
-    const found = tracks.find(t => t.id === paramId);
-    if (found) {
-      _urlTrackHandled.current = true;
-      setCurrentTrackId(found.id);
-      setTimeout(() => setIsPlaying(true), 800);
-    }
-  }, [tracks, initialTrackId]);
 
   // ── Firestore: save music on change (debounced 1.5s) ─────────────────────
   useEffect(()=>{
@@ -2426,7 +2459,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   };
   const musicReviewRef = useRef<HTMLDivElement>(null);
   const musicPlayerRef = useRef<HTMLDivElement>(null);
-  const [musicPlayerHovered, setMusicPlayerHovered] = React.useState(false);
   const [isMusicFullscreen, setIsMusicFullscreen] = useState(false);
   useEffect(() => { const h = () => setIsMusicFullscreen(!!document.fullscreenElement); document.addEventListener('fullscreenchange', h); return () => document.removeEventListener('fullscreenchange', h); }, []);
   const handleMusicFullscreen = () => {
@@ -2567,8 +2599,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   // thumbnails rendered via <TrackThumbnail> component directly
   const handleSaveEdit=(id:string)=>{
-    const update = (t:MusicTrack) => t.id===id ? {...t, artist:editArtist.trim()||t.artist, title:editTitle.trim()||t.title, category:editCategory||t.category} : t;
-    setTracks(p=>p.map(update));
+    const update=(t:MusicTrack)=>t.id===id?{...t,artist:editArtist.trim()||t.artist,title:editTitle.trim()||t.title,category:editCategory||t.category,url:editUrl.trim()||t.url,thumbnail:editThumbnail.trim()||t.thumbnail}:t;
+    setTracks(p=>{const n=p.map(update);saveMusicToFirestore(n);return n;});
     setUserTracks(p=>p.map(update));
     setEditingTrackId(null);
   };
@@ -2932,18 +2964,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
                         </div>
                       )}
                       {editingTrackId===track.id&&(
-                        <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col gap-2 px-4 py-3 border border-purple-500/20" onClick={e=>e.stopPropagation()}>
-                          <div className="flex gap-2">
-                            <input value={editArtist} onChange={e=>setEditArtist(e.target.value)} placeholder="Artist" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                            <input value={editTitle} onChange={e=>setEditTitle(e.target.value)} placeholder="Title" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                          </div>
-                          <div className="flex gap-1 flex-wrap">
-                            {[...genres].sort((a,b)=>a.localeCompare(b)).map(g=><button key={g} onClick={()=>setEditCategory(g)} className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${editCategory===g?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}>{g}</button>)}
-                          </div>
-                          <div className="flex gap-2 justify-end">
-                            <button onClick={()=>setEditingTrackId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
-                            <button onClick={()=>handleSaveEdit(track.id)} className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[8px] font-black uppercase">Save</button>
-                          </div>
+                        <div className="absolute left-0 right-0 z-50 bg-black border border-purple-500/30 rounded-xl shadow-2xl flex flex-col" style={{top:0,height:400}} onClick={e=>e.stopPropagation()}>
+                          <div className="px-3 pt-2.5 pb-2 border-b border-white/10 flex-shrink-0"><p className="text-[9px] font-black uppercase tracking-widest text-purple-400 leading-none mb-0.5">{track.artist}</p><p className="text-[12px] font-bold text-white truncate">{track.title}</p></div>
+                          <div className="grid grid-cols-2 gap-2 px-3 pt-2 flex-shrink-0"><div className="flex flex-col gap-1"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Artist</label><input value={editArtist} onChange={e=>setEditArtist(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50 w-full"/></div><div className="flex flex-col gap-1"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Title</label><input value={editTitle} onChange={e=>setEditTitle(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50 w-full"/></div></div>
+                          <div className="px-3 pt-2 flex-shrink-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">URL</label><input value={editUrl} onChange={e=>setEditUrl(e.target.value)} className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50"/></div>
+                          <div className="px-3 pt-2 flex-shrink-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Thumbnail URL</label><div className="flex gap-2 mt-1 items-center"><input value={editThumbnail} onChange={e=>setEditThumbnail(e.target.value)} placeholder="https://..." className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50"/>{editThumbnail&&<img src={editThumbnail} alt="" className="w-10 h-8 rounded object-cover border border-white/20 flex-shrink-0" onError={e=>{(e.target as HTMLImageElement).style.display='none';}} onLoad={e=>{(e.target as HTMLImageElement).style.display='block';}}/>}</div></div>
+                          <div className="px-3 pt-2 flex-1 flex flex-col min-h-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Genre</label><div className="flex gap-1 flex-wrap overflow-y-auto">{[...genres].sort((a,b)=>a.localeCompare(b)).map(g=><button key={g} onClick={()=>setEditCategory(g)} className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border flex-shrink-0 h-fit transition-all ${editCategory===g?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20'}`}>{g}</button>)}</div></div>
+                          <div className="flex gap-2 px-3 py-2 border-t border-white/10 flex-shrink-0"><button onClick={()=>setEditingTrackId(null)} className="flex-1 py-1.5 bg-white/5 rounded-lg text-[9px] font-black uppercase text-slate-400 hover:bg-white/10 transition-all">Cancel</button><button onClick={()=>handleSaveEdit(track.id)} className="flex-1 py-1.5 bg-purple-600 text-white rounded-lg text-[9px] font-black uppercase hover:bg-purple-500 transition-all">Save</button></div>
                         </div>
                       )}
                       {/* Drag handle */}
@@ -2964,7 +2991,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                       <div className="flex flex-col gap-0 flex-shrink-0 ml-2">
                         {isAuthorized ? (
                           <>
-                            <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
+                            <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
                             <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
                           </>
                         ) : (
@@ -3009,31 +3036,14 @@ const MusicApp: React.FC<MusicAppProps> = ({
                       </div>
                     </div>
                   )}
-                  {shareTrackId===track.id&&(
-                    <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col items-center justify-center gap-3 border border-blue-500/20" onClick={e=>e.stopPropagation()}>
-                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Share Track</p>
-                      <p className="text-[8px] text-slate-500 uppercase tracking-wider max-w-[80%] text-center truncate">{track.artist} — {track.title}</p>
-                      <div className="flex gap-2">
-                        <button onClick={e=>{e.stopPropagation();const url=`${SITE_URL}#track=${track.id}`;navigator.clipboard.writeText(url).then(()=>{const b=e.currentTarget;b.innerHTML='<i class="fa-solid fa-check text-[10px]"/>';setTimeout(()=>{b.innerHTML='<i class="fa-solid fa-link text-[10px]"/>';},1500);});}} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white text-[8px] font-black uppercase hover:bg-white/20 transition-all"><i className="fa-solid fa-link text-[10px]"/> Copy Link</button>
-                        <button onClick={e=>{e.stopPropagation();const url=`${SITE_URL}#track=${track.id}`;const subject=encodeURIComponent(`Listen to: ${track.artist} — ${track.title}`);const body=encodeURIComponent(`Hey! Check out this track on IntegralStream:\n\n${track.artist} — ${track.title}\n\n${url}`);window.open(`mailto:?subject=${subject}&body=${body}`);}} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[8px] font-black uppercase hover:bg-blue-600/50 transition-all"><i className="fa-solid fa-envelope text-[10px]"/> Email</button>
-                        <button onClick={e=>{e.stopPropagation();const url=`${SITE_URL}#track=${track.id}`;const msg=encodeURIComponent(`${track.artist} — ${track.title}\n${url}`);window.open(`sms:?body=${msg}`);}} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600/30 border border-green-500/40 text-green-300 text-[8px] font-black uppercase hover:bg-green-600/50 transition-all"><i className="fa-solid fa-comment-sms text-[10px]"/> Text</button>
-                        <button onClick={e=>{e.stopPropagation();setShareTrackId(null);}} className="w-7 h-7 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
-                      </div>
-                    </div>
-                  )}
                   {editingTrackId===track.id&&(
-                    <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col gap-2 px-4 py-3 border border-purple-500/20" onClick={e=>e.stopPropagation()}>
-                      <div className="flex gap-2">
-                        <input value={editArtist} onChange={e=>setEditArtist(e.target.value)} placeholder="Artist" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                        <input value={editTitle} onChange={e=>setEditTitle(e.target.value)} placeholder="Title" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/40"/>
-                      </div>
-                      <div className="flex gap-1 flex-wrap">
-                        {[...genres].sort((a,b)=>a.localeCompare(b)).map(g=><button key={g} onClick={()=>setEditCategory(g)} className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${editCategory===g?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}>{g}</button>)}
-                      </div>
-                      <div className="flex gap-2 justify-end">
-                        <button onClick={()=>setEditingTrackId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
-                        <button onClick={()=>handleSaveEdit(track.id)} className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[8px] font-black uppercase">Save</button>
-                      </div>
+                    <div className="absolute left-0 right-0 z-50 bg-black border border-purple-500/30 rounded-xl shadow-2xl flex flex-col" style={{top:0,height:400}} onClick={e=>e.stopPropagation()}>
+                      <div className="px-3 pt-2.5 pb-2 border-b border-white/10 flex-shrink-0"><p className="text-[9px] font-black uppercase tracking-widest text-purple-400 leading-none mb-0.5">{track.artist}</p><p className="text-[12px] font-bold text-white truncate">{track.title}</p></div>
+                      <div className="grid grid-cols-2 gap-2 px-3 pt-2 flex-shrink-0"><div className="flex flex-col gap-1"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Artist</label><input value={editArtist} onChange={e=>setEditArtist(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50 w-full"/></div><div className="flex flex-col gap-1"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Title</label><input value={editTitle} onChange={e=>setEditTitle(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50 w-full"/></div></div>
+                      <div className="px-3 pt-2 flex-shrink-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">URL</label><input value={editUrl} onChange={e=>setEditUrl(e.target.value)} className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50"/></div>
+                      <div className="px-3 pt-2 flex-shrink-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Thumbnail URL</label><div className="flex gap-2 mt-1 items-center"><input value={editThumbnail} onChange={e=>setEditThumbnail(e.target.value)} placeholder="https://..." className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-purple-500/50"/>{editThumbnail&&<img src={editThumbnail} alt="" className="w-10 h-8 rounded object-cover border border-white/20 flex-shrink-0" onError={e=>{(e.target as HTMLImageElement).style.display='none';}} onLoad={e=>{(e.target as HTMLImageElement).style.display='block';}}/>}</div></div>
+                      <div className="px-3 pt-2 flex-1 flex flex-col min-h-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Genre</label><div className="flex gap-1 flex-wrap overflow-y-auto">{[...genres].sort((a,b)=>a.localeCompare(b)).map(g=><button key={g} onClick={()=>setEditCategory(g)} className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border flex-shrink-0 h-fit transition-all ${editCategory===g?'bg-purple-600 border-purple-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20'}`}>{g}</button>)}</div></div>
+                      <div className="flex gap-2 px-3 py-2 border-t border-white/10 flex-shrink-0"><button onClick={()=>setEditingTrackId(null)} className="flex-1 py-1.5 bg-white/5 rounded-lg text-[9px] font-black uppercase text-slate-400 hover:bg-white/10 transition-all">Cancel</button><button onClick={()=>handleSaveEdit(track.id)} className="flex-1 py-1.5 bg-purple-600 text-white rounded-lg text-[9px] font-black uppercase hover:bg-purple-500 transition-all">Save</button></div>
                     </div>
                   )}
                   {/* Drag handle — admin only */}
@@ -3064,8 +3074,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                     {isAuthorized ? (
                       /* Admin: edit + delete only */
                       <>
-                        <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);}} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all"><i className="fa-solid fa-pen text-[7px]"/></button>
-                        <button onClick={e=>{e.stopPropagation();setShareTrackId(shareTrackId===track.id?null:track.id);}} className="absolute top-[50%] -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-blue-500/20 hover:border-blue-500/40 hover:text-blue-400 transition-all"><i className="fa-solid fa-share-nodes text-[7px]"/></button>
+                        <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all"><i className="fa-solid fa-pen text-[7px]"/></button>
                         <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
                       </>
                     ) : (
@@ -3077,7 +3086,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                         <div className="flex flex-col items-center justify-center flex-1 gap-0.5 pt-7 pb-7">
                           <button onClick={e=>{e.stopPropagation();if(!isUserLocked){onPendingReview();return;}handleLikeTrack(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${((track as any).likedBy||[]).includes(currentUser)?'text-blue-400':'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((track as any).likedBy||[]).includes(currentUser)?'solid':'regular'} fa-thumbs-up text-[11px]`}/></button>
                           <button onClick={e=>{e.stopPropagation();if(!isUserLocked){onPendingReview();return;}handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[11px]`}/></button>
-                          <button onClick={e=>{e.stopPropagation();setShareTrackId(shareTrackId===track.id?null:track.id);}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-blue-400 transition-all" title="Share"><i className="fa-solid fa-share-nodes text-[11px]"/></button>
                         </div>
                         {(isUserLocked&&track.addedBy===currentUser)&&<button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>}
                       </>
@@ -3093,11 +3101,15 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
         {/* ── Full-screen visual area ── */}
         <section className="music-visual-section flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
-          {currentTrack&&(type as string)!=='soundcloud'&&(type as string)!=='audiomack'&&(
+          {currentTrack&&(
             <div className="absolute opacity-0 pointer-events-none w-0 h-0">
-              <iframe key={`yt-${currentTrackId}`} id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
-                onLoad={e=>{ try{(e.target as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch{} }}
-              />
+              {type==='soundcloud'
+                ? <iframe key={`sc-${currentTrackId}`} id="sc-player" width="1" height="1" scrolling="no" frameBorder="no" allow="autoplay" src={embedUrl}/>
+                : (type as string)!=='audiomack' &&
+                  <iframe key={`yt-${currentTrackId}`} id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
+                    onLoad={e=>{ try{(e.target as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch{} }}
+                  />
+              }
             </div>
           )}
           <div className="w-full flex flex-col pt-4 gap-0">
@@ -3154,7 +3166,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
               </div>
             </div>
             <div className="px-8 w-full">
-              <div ref={musicPlayerRef} onClick={()=>{if(currentTrackId) setIsPlaying(p=>!p);}} onMouseEnter={()=>setMusicPlayerHovered(true)} onMouseLeave={()=>setMusicPlayerHovered(false)} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentTrackId?'pointer':'default'}}>
+              <div ref={musicPlayerRef} onClick={()=>{if(currentTrackId) setIsPlaying(p=>!p);}} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentTrackId?'pointer':'default'}}>
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
                   <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
@@ -3165,6 +3177,16 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
 
 
+                {/* Gallery slideshow */}
+                {currentTrack&&galleryTrackId===currentTrack.id&&(
+                  <GallerySlideshow
+                    images={currentTrack.galleryImages||[]}
+                    onClose={()=>setGalleryTrackId(null)}
+                    isAuthorized={isAuthorized}
+                    onAdd={(url)=>{const imgs=[...(currentTrack.galleryImages||[]),url];setTracks(p=>p.map(t=>t.id===currentTrack.id?{...t,galleryImages:imgs}:t));saveMusicToFirestore([...tracks].map(t=>t.id===currentTrack.id?{...t,galleryImages:imgs}:t));}}
+                    onDelete={(i)=>{const imgs=(currentTrack.galleryImages||[]).filter((_,j)=>j!==i);setTracks(p=>p.map(t=>t.id===currentTrack.id?{...t,galleryImages:imgs}:t));saveMusicToFirestore([...tracks].map(t=>t.id===currentTrack.id?{...t,galleryImages:imgs}:t));}}
+                  />
+                )}
                 {/* AudioMack — show only waveform strip, clip promo popup */}
                 {currentTrack&&(type as string)==='audiomack'&&(
                   <div style={{position:'absolute',inset:0,zIndex:5,overflow:'hidden',background:'#0a0010'}}>
@@ -3188,87 +3210,58 @@ const MusicApp: React.FC<MusicAppProps> = ({
                     />
                   </div>
                 )}
-                {/* SC waveform iframe — only rendered and visible for SoundCloud */}
-                {/* SC: full-size iframe at zIndex 2, thumbnail covers top portion at zIndex 3, leaving bottom 80px for waveform */}
-                {currentTrack&&type==='soundcloud'&&(<>
+                {/* SC iframe — audio only, waveform shows at bottom when playing */}
+                {currentTrack&&(type as string)!=='audiomack'&&(
                   <iframe
                     key={`vis-${currentTrackId}`}
                     id="music-main-player"
                     src={embedUrl}
-                    style={{position:'absolute',inset:0,width:'100%',height:'100%',border:'none',zIndex:2,opacity:(isPlaying&&musicPlayerHovered)?1:0,transition:'opacity 0.25s ease',pointerEvents:isPlaying?'auto':'none'}}
+                    width="100%"
+                    style={{width:'100%',height:'100%',border:'none',display:'block',position:'absolute',inset:0,zIndex:9,opacity:(type==='soundcloud'&&isPlaying)?1:0,pointerEvents:(type==='soundcloud'&&isPlaying)?'auto':'none',clipPath:'inset(calc(100% - 80px) 0 0 0)',transition:'opacity 0.5s ease 3s'}}
                     allow="autoplay; encrypted-media; picture-in-picture"
                     allowFullScreen
                   />
-                  {/* Click overlay — only covers top area (not waveform strip), toggles play/pause */}
-                  <div style={{position:'absolute',top:0,left:0,right:0,bottom:'80px',zIndex:5,cursor:'pointer'}} onClick={(e)=>{e.stopPropagation();setIsPlaying(p=>!p);}}/>
-                  {isPlaying&&<>
-                    {/* Thumbnail — covers everything when not hovering, slides up to reveal waveform on hover */}
-                    <div style={{position:'absolute',top:0,left:0,right:0,bottom:musicPlayerHovered?'80px':'0',zIndex:3,pointerEvents:'none',transition:'bottom 0.25s ease'}}>
-                      <img src={getThumbnailUrl(currentTrack)} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.35,filter:'blur(30px)',transform:'scale(1.08)'}}/>
-                      <img src={getThumbnailUrl(currentTrack)} alt={currentTrack.title} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
-                    </div>
-                    {/* Black bar + gradient — only on hover */}
-                    {musicPlayerHovered&&<><div style={{position:'absolute',bottom:0,left:0,right:0,height:'20px',zIndex:4,background:'#000',pointerEvents:'none'}}/><div style={{position:'absolute',bottom:'20px',left:0,right:0,height:'60px',zIndex:3,background:'linear-gradient(to top,transparent,rgba(0,0,0,0.6))',pointerEvents:'none'}}/></>}
-                  </>}
-                </>)}
-                {/* YouTube: tiny hidden iframe for postMessage control only */}
-                {currentTrack&&type==='youtube'&&(
-                  <iframe
-                    key={`vis-${currentTrackId}`}
-                    id="music-main-player"
-                    src={embedUrl}
-                    style={{position:'absolute',width:1,height:1,opacity:0,pointerEvents:'none',border:'none'}}
-                    allow="autoplay; encrypted-media"
-                  />
                 )}
-                {/* Paused: default video */}
+                {/* Paused: show default video above iframe (zIndex 10 > iframe zIndex 9) */}
                 {currentTrack&&(type as string)!=='audiomack'&&!isPlaying&&(
                   <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10}}>
                     <video autoPlay muted loop playsInline preload="auto" src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 )}
-                {/* Playing thumbnail for YouTube (full cover) */}
-                {currentTrack&&type==='youtube'&&isPlaying&&(
-                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:3}}>
+                {/* Playing: track thumbnail */}
+                {currentTrack&&(type as string)!=='audiomack'&&isPlaying&&(
+                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:5}}>
                     <img src={getThumbnailUrl(currentTrack)} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.35,filter:'blur(30px)',transform:'scale(1.08)'}}/>
                     <img src={getThumbnailUrl(currentTrack)} alt={currentTrack.title} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                    {type==='youtube'&&(
+                      <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.1),rgba(0,0,0,0.6))'}}>
+                        <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'20px',display:'flex',flexDirection:'column',gap:6}}>
+                          <div style={{display:'flex',alignItems:'flex-end',gap:3,height:28,marginBottom:2}}>{Array.from({length:24},(_,i)=>{const h=20+Math.abs(Math.sin(i*0.7+0.9)*Math.cos(i*0.4))*80;return <div key={i} style={{width:3,borderRadius:2,background:`hsl(${200+i*6},90%,65%)`,height:`${h}%`,animation:`scBar ${0.5+i*0.04}s ease-in-out infinite alternate`,animationDelay:`${i*0.06}s`}}/>;})}</div>
+                          <p style={{color:'rgba(255,255,255,0.7)',fontWeight:900,fontSize:10,textTransform:'uppercase',letterSpacing:'0.2em',margin:0}}>{currentTrack.artist}</p>
+                          <p style={{color:'#fff',fontWeight:700,fontSize:15,margin:0,textShadow:'0 1px 10px rgba(0,0,0,0.9)'}}>{currentTrack.title}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
+                {/* Dark gradient at bottom to blend SC waveform with image */}
+                {currentTrack&&type==='soundcloud'&&isPlaying&&(
+                  <div style={{position:'absolute',bottom:0,left:0,right:0,height:'100px',zIndex:8,background:'linear-gradient(to top,rgba(0,0,0,0.7) 0%,transparent 100%)',pointerEvents:'none'}}/>
+                )}
                 {/* Visualizer — always mounted when track present, shown/hidden via opacity only */}
-                <div style={{position:'absolute',inset:0,zIndex:10,opacity:(showVisualizer&&type!=='soundcloud')?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}} onClick={e=>e.stopPropagation()}>
+                <div style={{position:'absolute',inset:0,zIndex:10,opacity:showVisualizer?1:0,transition:'opacity 0.4s ease',pointerEvents:showVisualizer?'auto':'none'}} onClick={e=>e.stopPropagation()}>
                   {currentTrack && <VisualizerCanvas key={vizKey} onActivate={()=>setShowVisualizer(true)} active={showVisualizer} initialMode={vizInitialMode} isPlaying={isPlaying} hideEq={type==='soundcloud'}/>}
                 </div>
                 {/* Open visualizer button */}
-                {(currentTrack&&isPlaying&&!showVisualizer)&&(<VisualizerPickerOnly onActivate={(m)=>{setVizInitialMode(m??0);setVizKey(k=>k+1);setShowVisualizer(true);}}/>)}
+                
               </div>
             </div>
             
             <div className="w-full mt-2 px-8">
               <div className="bg-white/5 border border-white/5 rounded-3xl flex flex-wrap items-center px-8 py-4 w-full gap-3">
-                {currentTrack?(<><Tooltip label={`${currentTrack.category} · ${tracks.filter(t=>t.category===currentTrack.category).length} tracks`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span></Tooltip><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{displayName(currentUser)}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={()=>setShareMusicOpen(v=>!v)} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${shareMusicOpen?'bg-blue-600/20 border-blue-500/40 text-blue-400':'bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20'}`}><i className="fa-solid fa-share-nodes text-[11px]"/> Share</button><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
+                {currentTrack?(<><Tooltip label={`${currentTrack.category} · ${tracks.filter(t=>t.category===currentTrack.category).length} tracks`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span></Tooltip><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{displayName(currentUser)}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={()=>setShowVisualizer(v=>!v)} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${showVisualizer?"text-purple-400 bg-purple-500/20 border-purple-500/40":"text-slate-500 hover:text-white border-white/10 bg-white/5"}`}><i className="fa-solid fa-wave-square text-[10px]"/><span>Viz</span></button><button onClick={()=>setGalleryTrackId(v=>v===currentTrack.id?null:currentTrack.id)} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${galleryTrackId===currentTrack.id?"text-purple-400 bg-purple-500/20 border-purple-500/40":"text-slate-500 hover:text-white border-white/10 bg-white/5"}`}><i className="fa-solid fa-images text-[10px]"/><span>Gallery</span></button><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
               </div>
             </div>
-
-            {/* Music share panel */}
-            {currentTrack && shareMusicOpen && (
-              <div className="w-full px-8 mt-2 animate-fade-in">
-                <div className="bg-blue-600/10 border border-blue-500/20 rounded-2xl px-6 py-4 flex flex-wrap items-center gap-3">
-                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Share Track::</span>
-                  <span className="text-[10px] text-slate-400 truncate max-w-xs">{currentTrack.artist} — {currentTrack.title}</span>
-                  <div className="flex items-center gap-2 ml-auto flex-wrap">
-                    <button onClick={()=>{const url=`${SITE_URL}#track=${currentTrackId}`;navigator.clipboard.writeText(url).then(()=>{setShareMusicOpen(false);});}} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white text-[9px] font-black uppercase hover:bg-white/20 transition-all">
-                      <i className="fa-solid fa-link"/> Copy Link
-                    </button>
-                    <button onClick={()=>{const url=`${SITE_URL}#track=${currentTrackId}`;const subject=encodeURIComponent(`Listen to: ${currentTrack.artist} — ${currentTrack.title}`);const body=encodeURIComponent(`Hey! Check out this track on IntegralStream:\n\n${currentTrack.artist} — ${currentTrack.title}\n\n${url}`);window.open(`mailto:?subject=${subject}&body=${body}`);}} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[9px] font-black uppercase hover:bg-blue-600/50 transition-all">
-                      <i className="fa-solid fa-envelope"/> Email
-                    </button>
-                    <button onClick={()=>{const url=`${SITE_URL}#track=${currentTrackId}`;const msg=encodeURIComponent(`${currentTrack.artist} — ${currentTrack.title}\n${url}`);window.open(`sms:?body=${msg}`);}} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-600/30 border border-green-500/40 text-green-300 text-[9px] font-black uppercase hover:bg-green-600/50 transition-all">
-                      <i className="fa-solid fa-comment-sms"/> Text
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* ── Music Vault (inline) ── */}
             {showMusicVault && (
@@ -3556,103 +3549,6 @@ const StarRatingWidget=({value,onChange,size='text-sm'}:{value:number;onChange?:
   </div>
 );
 
-const VideoProgressBar: React.FC<{videoId:string; videoUrl:string; isPlaying:boolean; onSeek:(s:number)=>void; visible:boolean}> = ({videoId, videoUrl, isPlaying, onSeek, visible}) => {
-  const [elapsed, setElapsed] = React.useState(0);
-  const [duration, setDuration] = React.useState(0);
-  const startRef = React.useRef<number>(0);
-  const elapsedRef = React.useRef<number>(0);
-  const rafRef = React.useRef<number>(0);
-  const BARS = 60;
-
-  React.useEffect(()=>{
-    setElapsed(0); elapsedRef.current=0; setDuration(0);
-    const vid = videoUrl.includes('youtu.be/') ? videoUrl.split('youtu.be/')[1]?.split(/[?&#]/)[0]
-              : videoUrl.includes('v=') ? videoUrl.split('v=')[1]?.split(/[&#]/)[0]
-              : videoUrl.includes('/shorts/') ? videoUrl.split('/shorts/')[1]?.split(/[?&#]/)[0] : '';
-    if(vid) {
-      fetch('/yt-api/youtube/v3/videos?part=contentDetails&id='+vid+'&key=AIzaSyD8RJ2blSlO3RkrmZhF1Khp6zzLnMrWvKI')
-        .then(r=>r.json()).then(d=>{
-          const iso=d?.items?.[0]?.contentDetails?.duration||'';
-          const m=iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-          if(m) setDuration(((Number(m[1]||0)*3600)+(Number(m[2]||0)*60)+Number(m[3]||0)));
-        }).catch(()=>{});
-    }
-  },[videoId]);
-
-  React.useEffect(()=>{
-    if(isPlaying){
-      startRef.current = Date.now() - elapsedRef.current*1000;
-      const tick = () => {
-        elapsedRef.current = (Date.now()-startRef.current)/1000;
-        setElapsed(elapsedRef.current);
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
-    } else {
-      cancelAnimationFrame(rafRef.current);
-    }
-    return ()=>cancelAnimationFrame(rafRef.current);
-  },[isPlaying]);
-
-  const fmt = (s:number) => { const m=Math.floor(s/60); return `${m}:${String(Math.floor(s%60)).padStart(2,'0')}`; };
-  const effectiveDuration = duration>0 ? duration : 0;
-  const pct = effectiveDuration>0 ? Math.min(1, elapsed/effectiveDuration) : 0;
-  const activeBars = Math.round(pct * BARS);
-
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if(!effectiveDuration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const newPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const newElapsed = newPct * effectiveDuration;
-    elapsedRef.current = newElapsed;
-    setElapsed(newElapsed);
-    startRef.current = Date.now() - newElapsed * 1000;
-    onSeek(newElapsed);
-  };
-
-  return (
-    <div
-      style={{position:'absolute',bottom:0,left:0,right:0,zIndex:51,padding:'0 20px 14px',background:visible?'linear-gradient(to top,rgba(0,0,0,0.85),transparent)':'transparent',opacity:visible?1:0,transition:'opacity 0.25s ease'}}
-      onClick={e=>e.stopPropagation()}
-    >
-      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-        <span style={{color:'#3b82f6',fontSize:10,fontWeight:900,letterSpacing:'0.1em'}}>{fmt(elapsed)}</span>
-        <span style={{color:'rgba(255,255,255,0.3)',fontSize:10,fontWeight:700}}>{duration>0?fmt(duration):'--:--'}</span>
-      </div>
-      <div onClick={seek} style={{display:'flex',alignItems:'flex-end',gap:2,height:44,cursor:'pointer',userSelect:'none'}}>
-        {Array.from({length:BARS},(_,i)=>{
-          const active = i < activeBars;
-          const h = 20 + Math.abs(Math.sin(i*0.4+0.5)*Math.cos(i*0.25))*80;
-          return (
-            <div key={i} style={{
-              flex:1, height:`${h}%`, borderRadius:2,
-              background: active ? `hsl(${210+i*0.8},90%,${55+i*0.3}%)` : 'rgba(255,255,255,0.12)',
-              transition:'background 0.15s', minWidth:2,
-            }}/>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-const _getParam = (key: string): string | null => {
-  try {
-    // Try own location first
-    const own = new URLSearchParams(window.location.search).get(key) ||
-                new URLSearchParams(window.location.hash.replace('#','?')).get(key);
-    if (own) return own;
-    // Try parent frame if embedded in iframe
-    const parentSearch = window.parent?.location?.search || '';
-    const parentHash = window.parent?.location?.hash || '';
-    return new URLSearchParams(parentSearch).get(key) ||
-           new URLSearchParams(parentHash.replace('#','?')).get(key);
-  } catch { return null; }
-};
-const _INITIAL_TRACK_PARAM = typeof window !== 'undefined' ? _getParam('track') : null;
-const _INITIAL_VIDEO_PARAM = typeof window !== 'undefined' ? _getParam('video') : null;
-
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(() => {
     return localStorage.getItem(AUTH_KEY) === 'true';
@@ -3681,30 +3577,19 @@ const App: React.FC = () => {
     return mergedMap;
   });
 
-  const [showMusic, setShowMusic] = useState(!!_INITIAL_TRACK_PARAM);
-  const [isPlaying, setIsPlaying] = useState(!!_INITIAL_VIDEO_PARAM);
+  const [showMusic, setShowMusic] = useState(false);
   const [showUserPlaylist, setShowUserPlaylist] = useState(false);
-
-  // Handle deep links from share URLs (hash-based for Vercel compatibility)
-  useEffect(() => {
-    if (_INITIAL_TRACK_PARAM) setShowMusic(true);
-    if (_INITIAL_VIDEO_PARAM) setIsPlaying(true);
-  }, []);
   const openMusicWithPlaylist = () => {
     setShowMusic(true);
     setIsPlaying(false);
-    // Pause the video iframe immediately
-    const iframes = document.querySelectorAll('iframe');
-    iframes.forEach((iframe) => {
-      try {
-        // YouTube pause
-        iframe.contentWindow?.postMessage(JSON.stringify({event:'command',func:'pauseVideo',args:''}),'https://www.youtube.com');
-      } catch {}
-      // Also strip autoplay from src as fallback
-      if (iframe.src.includes('youtube') && iframe.src.includes('autoplay=1')) {
-        iframe.src = iframe.src.replace('autoplay=1','autoplay=0');
+    // Force pause video iframe since postMessage doesn't work on localhost
+    setTimeout(()=>{
+      const iframe = document.querySelector('iframe[src*="youtube"]') as HTMLIFrameElement|null;
+      if(iframe) {
+        const src = iframe.src;
+        iframe.src = src.replace('autoplay=1','autoplay=0');
       }
-    });
+    }, 100);
   };
   const [showLoginOverlay, setShowLoginOverlay] = useState(false);
   const [loginDefaultTab, setLoginDefaultTab] = useState<'Identify'|'Terminal'|'Restore'>('Identify');
@@ -3731,8 +3616,7 @@ const App: React.FC = () => {
   const [reviewingVideoId, setReviewingVideoId] = useState<string|null>(null);
   const [videoReviewRating, setVideoReviewRating] = useState(5);
   const [videoReviewComment, setVideoReviewComment] = useState('');
-  const [videoPlayerHovered, setVideoPlayerHovered] = useState(false);
-  const [shareVideoOpen, setShareVideoOpen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [videoCrossfading, setVideoCrossfading] = useState(false);
   const currentVideoIdRef = useRef<string | undefined>(undefined);
   const [playlistTab, setPlaylistTab] = useState<VideoCategory | 'All' | 'Vault'>('All');
@@ -3928,9 +3812,7 @@ const App: React.FC = () => {
     } catch (e) { return currentSource; }
   });
 
-  const [currentVideoId, setCurrentVideoId] = useState<string | undefined>(() => {
-    return new URLSearchParams(window.location.search).get('video') || undefined;
-  });
+  const [currentVideoId, setCurrentVideoId] = useState<string | undefined>(undefined);
   useEffect(() => { currentVideoIdRef.current = currentVideoId; }, [currentVideoId]);
 
   // ── Firestore: load videos on mount & subscribe to live changes ───────────
@@ -3947,7 +3829,6 @@ const App: React.FC = () => {
   const unsubVideos = useRef<()=>void>(()=>{});
 
   useEffect(() => {
-    const paramVideoId = new URLSearchParams(window.location.search).get('video');
     loadVideosFromFirestore().then(remote => {
       if (remote && remote.length > 0) {
         videoFirestoreUpdating.current = true;
@@ -3956,11 +3837,6 @@ const App: React.FC = () => {
           .map(v => ({...v, reviews: (v.reviews||[]).filter((r:any)=>!deletedReviewIds.current.has(r.id))}));
         setVideos(filtered);
         try { localStorage.setItem(DATA_KEY, JSON.stringify(filtered)); localStorage.setItem(VERSION_KEY, LIBRARY_VERSION.toString()); } catch {}
-        // Auto-play video from URL param
-        if (paramVideoId) {
-          const found = filtered.find(v => v.id === paramVideoId);
-          if (found) { setCurrentVideoId(found.id); setIsPlaying(true); }
-        }
       }
     });
     unsubVideos.current = subscribeToVideos(remote => {
@@ -4112,18 +3988,6 @@ const App: React.FC = () => {
   // ── Increment view after 5 seconds of watching ───────────────────────────
   const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewedVideoRef = useRef<string | null>(null);
-  // Pause video iframe whenever isPlaying becomes false
-  useEffect(() => {
-    if (isPlaying) return;
-    const t = setTimeout(() => {
-      const iframe = playerContainerRef.current?.querySelector('iframe') as HTMLIFrameElement | null;
-      if (iframe) {
-        try { iframe.contentWindow?.postMessage(JSON.stringify({event:'command',func:'pauseVideo',args:''}),'https://www.youtube.com'); } catch {}
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [isPlaying]);
-
   useEffect(() => {
     if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
     if (!currentVideoId || !isPlaying) return;
@@ -4139,14 +4003,20 @@ const App: React.FC = () => {
   // Auto-advance video — YouTube API duration timer + postMessage for production
   const videoEndedRef = useRef(false);
   const videoTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const videoIsPlayingRef = useRef(false);
+  useEffect(()=>{ videoIsPlayingRef.current = isPlaying; },[isPlaying]);
+  useEffect(()=>{
+    if(!isPlaying && videoTimerRef.current){ clearTimeout(videoTimerRef.current); videoTimerRef.current=null; }
+  },[isPlaying]);
   useEffect(()=>{
     if(videoTimerRef.current){ clearTimeout(videoTimerRef.current); videoTimerRef.current=null; }
     videoEndedRef.current = false;
-    if(!currentVideoId) return;
+    if(!currentVideoId || !isPlaying) return;
     let cancelled = false;
     const startedAt = Date.now();
     const advance = () => {
       if(cancelled||videoEndedRef.current) return;
+      if(!videoIsPlayingRef.current) return;
       videoEndedRef.current = true;
       const vid = currentVideoIdRef.current;
       setVideoCrossfading(true);
@@ -4419,27 +4289,17 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="px-8 w-full" ref={playerContainerRef}>
-               <div onClick={()=>{if(currentVideoId) setIsPlaying(p=>!p);}} onMouseEnter={()=>setVideoPlayerHovered(true)} onMouseLeave={()=>setVideoPlayerHovered(false)} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentVideoId?'pointer':'default'}}>
+               <div onClick={()=>{if(currentVideoId) setIsPlaying(p=>!p);}} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentVideoId?'pointer':'default'}}>
                 {currentVideo ? (
                   <>
                   {/* Click overlay to pause/resume — always on top */}
                   <div style={{position:'absolute',inset:0,zIndex:50,cursor:'pointer',background:'transparent'}} onClick={(e)=>{e.stopPropagation();setIsPlaying(p=>!p);}}/>
-                  {/* Video progress bar — always mounted so hover works */}
-                  {currentVideo && <VideoProgressBar
-                    videoId={currentVideo.id}
-                    videoUrl={currentVideo.url}
-                    isPlaying={isPlaying}
-                    visible={videoPlayerHovered}
-                    onSeek={(s)=>{
-                      const iframe = playerContainerRef.current?.querySelector('iframe') as HTMLIFrameElement|null;
-                      if(iframe){ try{ iframe.contentWindow?.postMessage(JSON.stringify({event:'command',func:'seekTo',args:[s,true]}),'https://www.youtube.com'); }catch{} }
-                    }}
-                  />}
-                  {/* Default video overlay — sits on top when paused, hides when playing */}
-                  <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:3,opacity:isPlaying?0:1,transition:'opacity 0.3s ease'}}>
-                    <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
-                  </div>
-                  {/* VideoPlayer always mounted — postMessage controls play/pause */}
+                  {/* Default video shown when paused */}
+                  {!isPlaying && (
+                    <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+                      <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                    </div>
+                  )}
                   <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
                   <VideoPlayer key={currentVideo.id} video={currentVideo} isFavorite={currentUserFavorites.includes(currentVideo.id)} isPlaying={isPlaying} onPlayStateChange={setIsPlaying} onEnded={()=>{ videoEndedRef.current=false; const vid=currentVideoIdRef.current; setVideoCrossfading(true); setTimeout(()=>{ setVideos(prev=>{ const idx=prev.findIndex(v=>v.id===vid); if(idx>=0){const next=prev[(idx+1)%prev.length];setCurrentVideoId(next.id);setIsPlaying(true);} return prev; }); setVideoCrossfading(false); },600); }} onToggleLike={() => handleToggleLike(currentVideo.id)} onToggleDislike={() => handleToggleDislike(currentVideo.id)} onToggleFavorite={() => handleToggleFavorite(currentVideo.id)} onWriteReview={() => { setReviewInitialTab('Write'); setActiveSecondaryView('reviews'); }} />
                   </div>
@@ -4468,29 +4328,6 @@ const App: React.FC = () => {
                   <button onClick={handleVideoFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen">
                     <i className={`fa-solid ${isVideoFullscreen ? 'fa-compress' : 'fa-expand'} text-[16px]`}/>
                   </button>
-                  <button onClick={()=>setShareVideoOpen(v=>!v)} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${shareVideoOpen?'bg-blue-600/20 border-blue-500/40 text-blue-400':'bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20'}`}>
-                    <i className="fa-solid fa-share-nodes text-[11px]"/> Share
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Video share panel */}
-            {currentVideo && shareVideoOpen && (
-              <div className="w-full px-8 mt-2 animate-fade-in">
-                <div className="bg-blue-600/10 border border-blue-500/20 rounded-2xl px-6 py-4 flex flex-wrap items-center gap-3">
-                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Share Video::</span>
-                  <span className="text-[10px] text-slate-400 truncate max-w-xs">{currentVideo.prompt || currentVideo.url}</span>
-                  <div className="flex items-center gap-2 ml-auto flex-wrap">
-                    <button onClick={()=>{const url=`${SITE_URL}#video=${currentVideo.id}`;navigator.clipboard.writeText(url).then(()=>{setShareVideoOpen(false);});}} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white text-[9px] font-black uppercase hover:bg-white/20 transition-all">
-                      <i className="fa-solid fa-link"/> Copy Link
-                    </button>
-                    <button onClick={()=>{const url=`${SITE_URL}#video=${currentVideo.id}`;const subject=encodeURIComponent(`Watch: ${currentVideo.prompt||'IntegralStream Video'}`);const body=encodeURIComponent(`Check out this video on IntegralStream:\n\n${currentVideo.prompt||''}\n\n${url}`);window.open(`mailto:?subject=${subject}&body=${body}`);}} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[9px] font-black uppercase hover:bg-blue-600/50 transition-all">
-                      <i className="fa-solid fa-envelope"/> Email
-                    </button>
-                    <button onClick={()=>{const url=`${SITE_URL}#video=${currentVideo.id}`;const msg=encodeURIComponent(`${currentVideo.prompt||'Check this out'}\n${url}`);window.open(`sms:?body=${msg}`);}} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-600/30 border border-green-500/40 text-green-300 text-[9px] font-black uppercase hover:bg-green-600/50 transition-all">
-                      <i className="fa-solid fa-comment-sms"/> Text
-                    </button>
-                  </div>
                 </div>
               </div>
             )}
@@ -4766,7 +4603,6 @@ const App: React.FC = () => {
           <MusicApp
             currentUser={currentUser}
             isAuthorized={isAuthorized}
-            initialTrackId={_INITIAL_TRACK_PARAM || undefined}
             onClose={() => {
               // Re-read identity from localStorage on close as safety net
               const savedUser = localStorage.getItem(USER_KEY);

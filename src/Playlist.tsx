@@ -32,7 +32,7 @@ interface PlaylistProps {
   isUserLocked?: boolean;
   onWriteReview?: (videoId: string, rating: number, comment: string) => void;
   onRequestIdentify?: () => void;
-  onEditVideo?: (id: string, prompt: string, category: string) => void;
+  onEditVideo?: (id: string, prompt: string, category: string, url?: string) => void;
 }
 
 const COLOR_PALETTE = [
@@ -84,6 +84,7 @@ const Playlist: React.FC<PlaylistProps> = ({
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [editCat, setEditCat] = useState('');
+  const [editUrl, setEditUrl] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [shareSuccessId, setShareSuccessId] = useState<string | null>(null);
   
@@ -184,11 +185,11 @@ const Playlist: React.FC<PlaylistProps> = ({
 
   const shortCat = (name: string) => {
     if (!name) return name;
+    if (/integral\s*serenity/i.test(name)) return 'ISC';
+    if (/permia\s*community/i.test(name)) return 'PIC';
     if (name.length <= 6) return name;
-    // Use first letter of each word
     const words = name.trim().split(/\s+/);
     if (words.length >= 2) return words.map(w => w[0].toUpperCase()).join('');
-    // Single long word — take first 4 chars
     return name.slice(0, 4).toUpperCase();
   };
 
@@ -350,7 +351,7 @@ const Playlist: React.FC<PlaylistProps> = ({
                     onDragOver={e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; }}
                     onDrop={e=>{ e.preventDefault(); if(userDragSrcId.current && userDragSrcId.current!==v.id) onMoveVideo(userDragSrcId.current, v.id); userDragSrcId.current=''; }}
                     onDragEnd={()=>{ userDragSrcId.current=''; }}
-                    className="group flex items-center gap-2 px-1.5 py-0.5 border-b border-white/5 last:border-0">
+                    className={`group flex items-center gap-1 px-[10px] py-[6px] rounded-lg transition-all cursor-pointer border border-white/5 relative hover:bg-white/5`}>
                     {/* Drag handle */}
                     <div onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} className="flex-shrink-0 flex items-center justify-center w-4 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing text-slate-600 hover:text-blue-400" title="Drag to reorder">
                       <i className="fa-solid fa-grip-vertical text-[10px]"/>
@@ -366,7 +367,7 @@ const Playlist: React.FC<PlaylistProps> = ({
                     <div className="flex flex-col gap-0 flex-shrink-0">
                       {isAuthorized ? (
                         <>
-                          <button onClick={e=>{e.stopPropagation();setEditingVideoId(v.id);setEditPrompt(v.prompt||'');setEditCat(v.category||'');}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
+                          <button onClick={e=>{e.stopPropagation();setEditingVideoId(v.id);setEditPrompt(v.prompt||'');setEditCat(v.category||'');setEditUrl(v.url||'');}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
                           <button onClick={e => { e.stopPropagation(); onRemove(v.id); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[17px]"/></button>
                         </>
                       ) : (
@@ -413,15 +414,17 @@ const Playlist: React.FC<PlaylistProps> = ({
               </div>
             )}
             {editingVideoId === video.id && (
-              <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md rounded-xl flex flex-col gap-2 px-4 py-3 border border-blue-500/20" onClick={(e) => e.stopPropagation()}>
-                <input value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} placeholder="Title..." className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] text-white focus:outline-none focus:border-blue-500/40"/>
-                <div className="flex gap-1 flex-wrap">
-                  {[...categories].sort((a,b)=>a.localeCompare(b)).map(c=><button key={c} onClick={()=>setEditCat(c)} className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${editCat===c?'bg-blue-600 border-blue-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}>{c}</button>)}
+              <div className="absolute left-0 right-0 z-50 bg-black border border-blue-500/30 rounded-xl shadow-2xl flex flex-col" style={{top:0,height:400}} onClick={(e) => e.stopPropagation()}>
+                <div className="px-3 pt-2.5 pb-2 border-b border-white/10 flex-shrink-0">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-blue-400 leading-none mb-0.5">{video.category}</p>
+                  <p className="text-[12px] font-bold text-white truncate">{video.prompt}</p>
                 </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={()=>setEditingVideoId(null)} className="px-3 py-1 bg-white/5 rounded-lg text-[8px] font-black uppercase text-slate-400">Cancel</button>
-                  <button onClick={()=>{onEditVideo?.(video.id,editPrompt,editCat);setEditingVideoId(null);}} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-[8px] font-black uppercase">Save</button>
+                <div className="flex flex-col gap-2 p-3 flex-1 min-h-0">
+                  <div className="flex flex-col gap-1"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">Name</label><input value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-blue-500/50"/></div>
+                  <div className="flex flex-col gap-1"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500">URL</label><input value={editUrl} onChange={e=>setEditUrl(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-blue-500/50"/></div>
+                  <div className="flex flex-col gap-1 flex-1 min-h-0"><label className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Category</label><div className="flex gap-1 flex-wrap overflow-y-auto">{[...categories].sort((a,b)=>a.localeCompare(b)).map(c=><button key={c} onClick={()=>setEditCat(c)} className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border flex-shrink-0 h-fit transition-all ${editCat===c?'bg-blue-600 border-blue-500 text-white':'bg-white/5 border-white/10 text-slate-500 hover:text-white hover:border-white/20'}`}>{c}</button>)}</div></div>
                 </div>
+                <div className="flex gap-2 px-3 py-2 border-t border-white/10 flex-shrink-0"><button onClick={()=>setEditingVideoId(null)} className="flex-1 py-1.5 bg-white/5 rounded-lg text-[9px] font-black uppercase text-slate-400 hover:bg-white/10 transition-all">Cancel</button><button onClick={()=>{onEditVideo?.(video.id,editPrompt,editCat,editUrl);setEditingVideoId(null);}} className="flex-1 py-1.5 bg-blue-600 text-white rounded-lg text-[9px] font-black uppercase hover:bg-blue-500 transition-all">Save</button></div>
               </div>
             )}
             {/* Drag handle — admin only */}
@@ -451,7 +454,7 @@ const Playlist: React.FC<PlaylistProps> = ({
             <div className="flex flex-col flex-shrink-0 self-stretch relative w-6">
               {isAuthorized ? (
                 <>
-                  <button onClick={(e) => { e.stopPropagation(); setEditingVideoId(video.id); setEditPrompt(video.prompt||''); setEditCat(video.category||''); }} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[7px]"/></button>
+                  <button onClick={(e) => { e.stopPropagation(); setEditingVideoId(video.id); setEditPrompt(video.prompt||''); setEditCat(video.category||''); setEditUrl(video.url||''); }} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[7px]"/></button>
                   <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
                 </>
               ) : (
