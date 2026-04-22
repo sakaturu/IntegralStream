@@ -2273,15 +2273,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
         try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(merged)); } catch {}
         return merged;
       });
-      // If any track was corrupted, immediately save clean version back to Firestore
       const hadBadData = remote.some((tr:any) => {
         const url = tr.url||'';
         return url.includes('<') || url.includes('iframe') ||
                (tr.artist||'').includes('<') || (tr.title||'').toLowerCase() === 'song';
       });
-      if (hadBadData) {
-        setTimeout(() => saveMusicToFirestore(cleaned), 100);
-      }
+      if (hadBadData) { setTimeout(() => saveMusicToFirestore(cleaned), 100); }
     });
     return () => { unsubTracks(); };
   }, []);
@@ -3186,9 +3183,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
               <div ref={musicPlayerRef} onClick={()=>{if(currentTrackId) setIsPlaying(p=>!p);}} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentTrackId?'pointer':'default'}}>
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
-                  <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14,background:'#000'}}>
-                    <video key="default-music-video" autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" crossOrigin="anonymous" onError={e=>{(e.target as HTMLVideoElement).style.display='none';}}/>
-
+                  <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14,background:'#0a0010'}}>
+                    <video key="idle-music" autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4"/>
+                    <div style={{position:'relative',zIndex:3,textAlign:'center'}}><p style={{color:'rgba(255,255,255,0.3)',fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:'0.3em'}}>Select a Track</p></div>
                   </div>
                 )}
 
@@ -4275,7 +4272,7 @@ const App: React.FC = () => {
               </div>
               {/* Right: category tabs — wrapping rows, multi-select accumulates */}
               <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 pt-2">
                   {(['All', 'Vault', ...([...categories].sort((a,b)=>a.localeCompare(b)))] as const).map(tabName => {
                     const color = tabName === 'All' ? '#f8fafc' : tabName === 'Vault' ? '#ef4444' : (categoryColors[tabName] || '#94a3b8');
                     const isSelected = playlistTab === tabName;
