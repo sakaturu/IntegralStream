@@ -2219,7 +2219,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [formUrl,    setFormUrl]    = useState('');
   const [formArtist, setFormArtist] = useState('');
   const [formTitle,  setFormTitle]  = useState('');
-  const [formThumbnail, setFormThumbnail] = useState('');
   const [formFetching, setFormFetching] = useState(false);
   const [formCategory,setFormCategory]=useState(()=>{const s=localStorage.getItem(MUSIC_GENRES_KEY);const g=s?JSON.parse(s):DEFAULT_MUSIC_GENRES;return g[0]||'Other';});
   const [newGenre,   setNewGenre]   = useState('');
@@ -2266,15 +2265,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
+      if(Date.now() - _musicLocalChangeAt.current < 3000) return;
       const cleaned = remote.map(sanitiseTrack);
-      if (Date.now() - _lastLocalSave.current < 5000) return;
-      setTracks(prev => {
-        const remoteIds = new Set(cleaned.map((t:any) => t.id));
-        const localOnly = prev.filter(t => !remoteIds.has(t.id));
-        const merged = localOnly.length > 0 ? [...localOnly, ...cleaned] : cleaned;
-        try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(merged)); } catch {}
-        return merged;
-      });
+      setTracks(cleaned);
+      try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(cleaned)); } catch {}
+      // If any track was corrupted, immediately save clean version back to Firestore
       const hadBadData = remote.some((tr:any) => {
         const url = tr.url||'';
         return url.includes('<') || url.includes('iframe') ||
@@ -2290,7 +2285,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   // ── Firestore: save music on change (debounced 1.5s) ─────────────────────
   useEffect(()=>{
     const clean = tracks.map(sanitiseTrack);
-    const t = setTimeout(()=>{ _lastLocalSave.current = Date.now(); saveMusicToFirestore(clean); }, 1500);
+    const t = setTimeout(()=>{ saveMusicToFirestore(clean); }, 1500);
     // Also keep localStorage in sync as fallback
     try {
       const stripped = clean.map((t:any)=>({...t, thumbnail: t.thumbnail?.startsWith('data:') ? '' : (t.thumbnail||'')}));
@@ -2351,7 +2346,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   // Auto-play next track
   const _currentTrackIdRef = useRef<string|undefined>(undefined);
   const _tracksRef = useRef<MusicTrack[]>([]);
-  const _lastLocalSave = useRef<number>(0);
   const _userTracksRef = useRef<MusicTrack[]>([]);
   useEffect(()=>{ _currentTrackIdRef.current = currentTrackId; }, [currentTrackId]);
   useEffect(()=>{ _tracksRef.current = tracks; }, [tracks]);
@@ -2435,6 +2429,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   // Reorder admin/shared tracks by dragging
   const handleDragReorder = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
+    _musicLocalChangeAt.current = Date.now();
     setTracks(prev => {
       const filtered = prev.filter(t => {
         if (activeTab === 'Vault') return t.isFavorite;
@@ -2450,8 +2445,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
       const next = [...prev];
       next.splice(fromFullIdx, 1);
       next.splice(toFullIdx, 0, fromTrack);
-      _lastLocalSave.current = Date.now();
-      setTimeout(()=>saveMusicToFirestore(next), 100);
+      setTimeout(() => saveMusicToFirestore(next), 100);
       return next;
     });
   };
@@ -2527,6 +2521,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     setFormFetching(false);
   };
 
+  const _musicLocalChangeAt = React.useRef(0);
   const handleAddTrack=async ()=>{
     if(!formUrl.trim())return;
     if(isAddingTrack.current)return;
@@ -2538,6 +2533,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
       return;
     }
     isAddingTrack.current=true;
+    _musicLocalChangeAt.current = Date.now();
     // Start with whatever the user typed (may be empty)
     let artist=formArtist.trim();
     let title=formTitle.trim();
@@ -2586,20 +2582,15 @@ const MusicApp: React.FC<MusicAppProps> = ({
     // Clean up SoundCloud titles like "Song Name, by Artist" → "Song Name"
     title = title.replace(/,?\s+by\s+.+$/i, '').trim();
     const isUserTrack = currentUser !== MASTER_IDENTITY;
-    const tk:MusicTrack={id:`m-${Date.now()}`,artist,title,url,thumbnail:formThumbnail.trim()||thumbnail,category:formCategory,...(isUserTrack?{addedBy:currentUser}:{}),timestamp:Date.now(),playCount:0,likeCount:0};
+    const tk:MusicTrack={id:`m-${Date.now()}`,artist,title,url,thumbnail,category:formCategory,...(isUserTrack?{addedBy:currentUser}:{}),timestamp:Date.now(),playCount:0,likeCount:0};
     if(isUserTrack){
       const newUserTracks = [tk, ...userTracks];
       setUserTracks(newUserTracks);
       saveUserTracks(newUserTracks);
       onOpenUserPlaylist();
     }
-    else {
-      _lastLocalSave.current = Date.now();
-      const withNew = [tk, ..._tracksRef.current];
-      setTracks(withNew);
-      saveMusicToFirestore(withNew);
-    }
-    setFormUrl('');setFormArtist('');setFormTitle('');setFormThumbnail('');setShowAddForm(false);setCurrentTrackId(tk.id);setIsPlaying(true);
+    else setTracks(p=>[tk,...p]);
+    setFormUrl('');setFormArtist('');setFormTitle('');setShowAddForm(false);setCurrentTrackId(tk.id);setIsPlaying(true);
     isAddingTrack.current=false;
   };
   const handleRemoveTrack=(id:string)=>{
@@ -2703,7 +2694,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
       const n = tab.name;
       if (n.length <= 10) return n;
       // Smart abbreviations for known long patterns
-      if (/celestial.*meditation/i.test(n)) return 'Cel. Med';
       if (/meditation.*silent/i.test(n)) return 'Med. Silent';
       if (/meditation.*guided/i.test(n)) return 'Med. Guided';
       if (/meditation/i.test(n)) return 'Meditation';
@@ -2731,7 +2721,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
             <span className="truncate w-full text-center px-0.5">{shortName}</span>
           </button>
         </Tooltip>
-        <span className="absolute -top-1.5 left-0 min-w-[16px] h-[16px] rounded-full bg-black/80 border border-white/20 text-white flex items-center justify-center px-0.5 text-[8px] font-black z-10 pointer-events-none">{count}</span>
         {del&&<button onClick={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"/></button>}
       </div>
     );
@@ -2906,7 +2895,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 </div>
                 <input value={formArtist} onChange={e=>setFormArtist(e.target.value)} placeholder="Artist..." className={`w-full bg-black/40 border rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700 transition-all ${formArtist?'border-purple-500/30':'border-white/10'}`}/>
                 <input value={formTitle} onChange={e=>setFormTitle(e.target.value)} placeholder="Title..." className={`w-full bg-black/40 border rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700 transition-all ${formTitle?'border-purple-500/30':'border-white/10'}`}/>
-                <div className="flex gap-2 items-center"><input value={formThumbnail} onChange={e=>setFormThumbnail(e.target.value)} placeholder="Image URL (optional)..." className="flex-1 bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-[10px] text-white focus:outline-none focus:border-purple-500/30 font-bold placeholder-slate-700"/>{formThumbnail&&<img src={formThumbnail} alt="" className="w-12 h-10 rounded-lg object-cover border border-white/20 flex-shrink-0" onError={e=>{(e.target as HTMLImageElement).style.display='none';}} onLoad={e=>{(e.target as HTMLImageElement).style.display='block';}}/>}</div>
                 <div className="flex flex-wrap gap-1">
                   {[...genres].sort((a,b)=>a.localeCompare(b)).map(g=>(
                     <button key={g} type="button" onClick={()=>setFormCategory(g)}
@@ -3169,7 +3157,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                         >
                           {tab.name}
                         </button>
-                        <span className="absolute -top-1.5 left-0 min-w-[15px] h-[15px] rounded-full bg-black/80 border border-white/20 text-white flex items-center justify-center px-0.5 text-[8px] font-black z-10 pointer-events-none">{tab.name==='All'?tracks.length:tab.name==='Vault'?tracks.filter(t=>t.isFavorite).length:tracks.filter(t=>t.category===tab.name).length}</span>
                         {isAuthorized && !['All','Vault'].includes(tab.name) && (
                           <button
                             type="button"
