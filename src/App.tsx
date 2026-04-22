@@ -1859,19 +1859,17 @@ const MusicPlaylistButton: React.FC<{
   const [activeId,setActiveId]= React.useState<string|null>(null);
   const mine = pls.filter(p=>p.owner===currentUser);
 
-  React.useEffect(()=>{ saveMusicPLs(pls); },[pls]);
-
   const create = () => {
     const name = newName.trim();
     if(!name) return;
     const pl:MusicPL = {id:`mpl-${Date.now()}`,name,owner:currentUser,trackIds:[],createdAt:Date.now()};
-    setPls(prev=>[...prev,pl]);
+    const next = [...getMusicPLs(), pl]; saveMusicPLs(next); setPls(next);
     setNewName('');
     setActiveId(pl.id);
   };
-  const addTrack = (plId:string, tid:string) => setPls(prev=>prev.map(p=>p.id===plId&&!p.trackIds.includes(tid)?{...p,trackIds:[...p.trackIds,tid]}:p));
-  const removeTrack = (plId:string, tid:string) => setPls(prev=>prev.map(p=>p.id===plId?{...p,trackIds:p.trackIds.filter(x=>x!==tid)}:p));
-  const deletePl = (id:string) => { setPls(prev=>prev.filter(p=>p.id!==id)); if(activeId===id) setActiveId(null); };
+  const addTrack = (plId:string, tid:string) => { const next=getMusicPLs().map(p=>p.id===plId&&!p.trackIds.includes(tid)?{...p,trackIds:[...p.trackIds,tid]}:p); saveMusicPLs(next); setPls(next); };
+  const removeTrack = (plId:string, tid:string) => { const next=getMusicPLs().map(p=>p.id===plId?{...p,trackIds:p.trackIds.filter(x=>x!==tid)}:p); saveMusicPLs(next); setPls(next); };
+  const deletePl = (id:string) => { const next=getMusicPLs().filter(p=>p.id!==id); saveMusicPLs(next); setPls(next); if(activeId===id) setActiveId(null); };
 
   return (
     <div className="relative">
@@ -1928,7 +1926,7 @@ const MusicPlaylistButton: React.FC<{
                     <div className="flex items-center gap-2 px-3 py-2 cursor-pointer" onClick={()=>setActiveId(activeId===pl.id?null:pl.id)}>
                       <i className="fa-solid fa-list text-purple-400 text-[10px] flex-shrink-0"/>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white truncate">{pl.name}</p>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white truncate">{pl.name.replace(/celestial\s*meditation/gi,"Cel.Med")}</p>
                         <p className="text-[7px] text-slate-600 uppercase">{pl.trackIds.length} track{pl.trackIds.length!==1?'s':''}</p>
                       </div>
                       <button onClick={e=>{e.stopPropagation();deletePl(pl.id);}} className="text-slate-700 hover:text-red-400 transition-colors">
@@ -2266,7 +2264,21 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      const cleaned = remote.map(sanitiseTrack);
+      // Extract genres from special marker track if present
+      const marker = remote.find((t:any) => t.id === '__genres__');
+      if (marker && (marker as any).__genres__) {
+        const g = (marker as any).__genres__;
+        const gc = (marker as any).__genreColors__;
+        if (Array.isArray(g) && g.length > 0) {
+          setGenres(g);
+          localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(g));
+        }
+        if (gc) {
+          setGenreColors(gc);
+          localStorage.setItem('integral_music_genre_colors_v1', JSON.stringify(gc));
+        }
+      }
+      const cleaned = remote.filter((t:any)=>t.id!=='__genres__').map(sanitiseTrack);
       if (Date.now() - _lastLocalSave.current < 5000) return;
       setTracks(prev => {
         const remoteIds = new Set(cleaned.map((t:any) => t.id));
@@ -2275,6 +2287,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
         try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(merged)); } catch {}
         return merged;
       });
+      // If any track was corrupted, immediately save clean version back to Firestore
       const hadBadData = remote.some((tr:any) => {
         const url = tr.url||'';
         return url.includes('<') || url.includes('iframe') ||
@@ -2326,7 +2339,15 @@ const MusicApp: React.FC<MusicAppProps> = ({
     try { localStorage.setItem(`integral_user_tracks_${user}`, JSON.stringify(tracks)); } catch {}
   };
 
-  useEffect(()=>{localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));},[genres]);
+  useEffect(()=>{
+    localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));
+    // Also persist genres to Firestore via a special marker track
+    const marker = {id:'__genres__',artist:'__system__',title:'__genres__',url:'',category:'Other',
+      addedBy:'system',timestamp:Date.now(),playCount:0,likeCount:0,
+      __genres__:genres, __genreColors__:genreColors};
+    const baseT = _tracksRef.current.filter((t:any)=>t.id!=='__genres__');
+    saveMusicToFirestore([...baseT, marker]);
+  },[genres]);
   useEffect(()=>{localStorage.setItem('integral_music_genre_colors_v1',JSON.stringify(genreColors));},[genreColors]);
 
   const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||userTracks.find(t=>t.id===currentTrackId)||null,[tracks,userTracks,currentTrackId]);
