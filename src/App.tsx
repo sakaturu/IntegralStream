@@ -3133,7 +3133,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 <h2 className="text-purple-500 font-black uppercase text-[10px] tracking-[0.4em] whitespace-nowrap">{currentTrack?'Now Playing':'Select Track'}</h2>
               </div>
               {/* Right: genre tabs — multi-select, accumulates on click */}
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0" style={{overflow:"visible"}}>
                 <div className="flex flex-wrap gap-1 pt-2">
                   {allTabs.map(tab=>{
                     const c = getTabColor(tab.name);
@@ -3183,9 +3183,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
               <div ref={musicPlayerRef} onClick={()=>{if(currentTrackId) setIsPlaying(p=>!p);}} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentTrackId?'pointer':'default'}}>
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
-                  <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14,background:'#0a0010'}}>
-                    <video key="idle-music" autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4"/>
-                    <div style={{position:'relative',zIndex:3,textAlign:'center'}}><p style={{color:'rgba(255,255,255,0.3)',fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:'0.3em'}}>Select a Track</p></div>
+                  <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
+                    <video autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" crossOrigin="anonymous"/>
+
                   </div>
                 )}
 
@@ -3239,7 +3239,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Paused: show default video above iframe (zIndex 10 > iframe zIndex 9) */}
                 {currentTrack&&(type as string)!=='audiomack'&&!isPlaying&&(
                   <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10}}>
-                    <video autoPlay muted loop playsInline preload="auto" src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <video autoPlay muted loop playsInline preload="auto" src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 )}
                 {/* Playing: track thumbnail */}
@@ -4271,7 +4271,7 @@ const App: React.FC = () => {
                 <h2 className="text-blue-600 font-black uppercase text-[10px] tracking-[0.4em] whitespace-nowrap">{currentVideo ? 'Now Playing' : 'Select Video'}</h2>
               </div>
               {/* Right: category tabs — wrapping rows, multi-select accumulates */}
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0" style={{overflow:"visible"}}>
                 <div className="flex flex-wrap gap-1 pt-2">
                   {(['All', 'Vault', ...([...categories].sort((a,b)=>a.localeCompare(b)))] as const).map(tabName => {
                     const color = tabName === 'All' ? '#f8fafc' : tabName === 'Vault' ? '#ef4444' : (categoryColors[tabName] || '#94a3b8');
@@ -4311,7 +4311,7 @@ const App: React.FC = () => {
                   {/* Default video shown when paused */}
                   {!isPlaying && (
                     <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
-                      <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                      <video autoPlay muted loop playsInline src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                     </div>
                   )}
                   <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
@@ -4320,7 +4320,7 @@ const App: React.FC = () => {
                   </>
                 ) : videos.length > 0 ? (
                   <div className="absolute inset-0" onClick={() => { setCurrentVideoId(videos[0].id); setIsPlaying(true); }}>
-                    <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <video autoPlay muted loop playsInline src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
