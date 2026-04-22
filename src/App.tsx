@@ -2264,21 +2264,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      // Extract genres from special marker track if present
-      const marker = remote.find((t:any) => t.id === '__genres__');
-      if (marker && (marker as any).__genres__) {
-        const g = (marker as any).__genres__;
-        const gc = (marker as any).__genreColors__;
-        if (Array.isArray(g) && g.length > 0) {
-          setGenres(g);
-          localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(g));
-        }
-        if (gc) {
-          setGenreColors(gc);
-          localStorage.setItem('integral_music_genre_colors_v1', JSON.stringify(gc));
-        }
-      }
-      const cleaned = remote.filter((t:any)=>t.id!=='__genres__').map(sanitiseTrack);
+      const cleaned = remote.map(sanitiseTrack);
       if (Date.now() - _lastLocalSave.current < 5000) return;
       setTracks(prev => {
         const remoteIds = new Set(cleaned.map((t:any) => t.id));
@@ -2339,15 +2325,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     try { localStorage.setItem(`integral_user_tracks_${user}`, JSON.stringify(tracks)); } catch {}
   };
 
-  useEffect(()=>{
-    localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));
-    // Also persist genres to Firestore via a special marker track
-    const marker = {id:'__genres__',artist:'__system__',title:'__genres__',url:'',category:'Other',
-      addedBy:'system',timestamp:Date.now(),playCount:0,likeCount:0,
-      __genres__:genres, __genreColors__:genreColors};
-    const baseT = _tracksRef.current.filter((t:any)=>t.id!=='__genres__');
-    saveMusicToFirestore([...baseT, marker]);
-  },[genres]);
+  useEffect(()=>{localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));},[genres]);
   useEffect(()=>{localStorage.setItem('integral_music_genre_colors_v1',JSON.stringify(genreColors));},[genreColors]);
 
   const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||userTracks.find(t=>t.id===currentTrackId)||null,[tracks,userTracks,currentTrackId]);
@@ -3159,7 +3137,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
               </div>
               {/* Right: genre tabs — multi-select, accumulates on click */}
               <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 pt-2">
                   {allTabs.map(tab=>{
                     const c = getTabColor(tab.name);
                     const isSelected = tab.name==='All' ? (activeTab==='All' && selectedGenres.length===0)
@@ -3208,8 +3186,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
               <div ref={musicPlayerRef} onClick={()=>{if(currentTrackId) setIsPlaying(p=>!p);}} className="w-full max-w-[calc(100%-20px)] max-h-[calc(100vh-240px)] aspect-video bg-black rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl relative mx-auto" style={{cursor:currentTrackId?'pointer':'default'}}>
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
-                  <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
-                    <video autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" crossOrigin="anonymous"/>
+                  <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14,background:'#000'}}>
+                    <video key="default-music-video" autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" crossOrigin="anonymous" onError={e=>{(e.target as HTMLVideoElement).style.display='none';}}/>
 
                   </div>
                 )}
