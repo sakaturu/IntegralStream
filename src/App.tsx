@@ -15,6 +15,7 @@ import {
 
 
 const DEFAULT_MUSIC_GENRES = ['Affirmations', 'Celestial Meditation', 'Classical', 'Country', 'Dance', 'Drum-N-Bass', 'Electronic', 'Enviro-Nature', 'FAV', 'Guided Meditation', 'Hip-Hop', 'Inspirational', 'Integral Serenity', 'Jazz', 'Lounge', 'Multi-Lang', 'Odd', 'Other', 'Pop', 'Rock', 'Silent Meditation', 'Spanish', 'Spiritual'];
+const GENRES_VERSION = 'v3'; // bump this to force-reset genres on all browsers
 const MUSIC_GENRES_KEY     = 'integral_music_genres_v1';
 const MUSIC_REVIEWS_KEY    = 'integral_music_reviews_v1';
 const MUSIC_FAVORITES_KEY  = 'integral_music_favorites_v1';
@@ -2184,7 +2185,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
     if(isAuthorized){ handleAdminLogout(); }
     else { setShowAdminLogin(true); setAdminError(''); setAdminPass(''); }
   };
-  const [genres,     setGenres]     = useState<string[]>(()=>{const s=localStorage.getItem(MUSIC_GENRES_KEY);return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;});
+  const [genres,     setGenres]     = useState<string[]>(()=>{
+    const ver=localStorage.getItem(MUSIC_GENRES_KEY+'_ver');
+    if(ver!==GENRES_VERSION){localStorage.removeItem(MUSIC_GENRES_KEY);localStorage.setItem(MUSIC_GENRES_KEY+'_ver',GENRES_VERSION);}
+    const s=localStorage.getItem(MUSIC_GENRES_KEY);return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;
+  });
   const [genreColors,setGenreColors]= useState<Record<string,string>>(()=>{const s=localStorage.getItem('integral_music_genre_colors_v1');return s?JSON.parse(s):{...DEFAULT_GENRE_COLORS};});
   const [tracks, setTracks] = useState<MusicTrack[]>(()=>{
     const s=localStorage.getItem(SHARED_MUSIC_KEY);
