@@ -14,7 +14,7 @@ import {
 } from './services/firebase';
 
 
-const DEFAULT_MUSIC_GENRES = ['Dance','Classical','Country','Rock','Jazz','Hip-Hop','Electronic','Pop','Other'];
+const DEFAULT_MUSIC_GENRES = ['Affirmations', 'Celestial Meditation', 'Classical', 'Country', 'Dance', 'Drum-N-Bass', 'Electronic', 'Enviro-Nature', 'FAV', 'Guided Meditation', 'Hip-Hop', 'Inspirational', 'Integral Serenity', 'Jazz', 'Lounge', 'Multi-Lang', 'Odd', 'Other', 'Pop', 'Rock', 'Silent Meditation', 'Spanish', 'Spiritual'];
 const MUSIC_GENRES_KEY     = 'integral_music_genres_v1';
 const MUSIC_REVIEWS_KEY    = 'integral_music_reviews_v1';
 const MUSIC_FAVORITES_KEY  = 'integral_music_favorites_v1';
@@ -2243,13 +2243,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const cleanTitle = (t: any) => sanitiseTrack(t);
   useEffect(()=>{
     loadMusicFromFirestore().then(remote => {
-      // Extract genres from marker track if present
-      const genreMarker = remote.find((t:any) => t.id === '__genres__');
-      if (genreMarker && Array.isArray((genreMarker as any).__genres__) && (genreMarker as any).__genres__.length > 0) {
-        const g = (genreMarker as any).__genres__ as string[];
-        setGenres(g);
-        try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(g)); } catch {}
-      }
       if (remote && remote.length > 0) {
         const cleaned = remote.map(sanitiseTrack);
         setTracks(cleaned);
@@ -2271,14 +2264,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      // Extract genres from marker if present
-      const genreMarker = remote.find((t:any) => t.id === '__genres__');
-      if (genreMarker && Array.isArray((genreMarker as any).__genres__) && (genreMarker as any).__genres__.length > 0) {
-        const g = (genreMarker as any).__genres__ as string[];
-        setGenres(g);
-        try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(g)); } catch {}
-      }
-      const cleaned = remote.filter((t:any) => t.id !== '__genres__').map(sanitiseTrack);
+      const cleaned = remote.map(sanitiseTrack);
       if (Date.now() - _lastLocalSave.current < 5000) return;
       setTracks(prev => {
         const remoteIds = new Set(cleaned.map((t:any) => t.id));
@@ -2362,7 +2348,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const _currentTrackIdRef = useRef<string|undefined>(undefined);
   const _tracksRef = useRef<MusicTrack[]>([]);
   const _lastLocalSave = useRef<number>(0);
-  const _genresSavedToFirestore = useRef<boolean>(false);
   const _userTracksRef = useRef<MusicTrack[]>([]);
   useEffect(()=>{ _currentTrackIdRef.current = currentTrackId; }, [currentTrackId]);
   useEffect(()=>{ _tracksRef.current = tracks; }, [tracks]);
@@ -2437,25 +2422,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=>{ cancelled=true; if(scTimerRef.current){clearTimeout(scTimerRef.current);scTimerRef.current=null;} };
   },[currentTrack?.id,isPlaying,playNextTrack]);
 
-  const handleAddGenre=()=>{
-    const g=newGenre.trim();if(!g||genres.includes(g))return;
-    const newGenres=[...genres,g];
-    setGenres(newGenres);
-    setGenreColors(p=>({...p,[g]:newGenreColor}));
-    setNewGenre('');setShowAddGenreForm(false);
-    // Save genres to Firestore
-    const marker:any={id:'__genres__',artist:'__system__',title:'__genres__',url:'__genres_marker__',category:'Other',addedBy:'system',timestamp:Date.now(),playCount:0,likeCount:0,__genres__:newGenres};
-    setTimeout(()=>saveMusicToFirestore([..._tracksRef.current.filter((t:any)=>t.id!=='__genres__'),marker]),500);
-  };
-  const handleRemoveGenre=(g:string)=>{
-    const newGenres=genres.filter(x=>x!==g);
-    setGenres(newGenres);
-    if(activeTab===g)setActiveTab('All');
-    setSelectedGenresSafe(p=>p.filter(x=>x!==g));
-    // Save genres to Firestore
-    const marker:any={id:'__genres__',artist:'__system__',title:'__genres__',url:'__genres_marker__',category:'Other',addedBy:'system',timestamp:Date.now(),playCount:0,likeCount:0,__genres__:newGenres};
-    setTimeout(()=>saveMusicToFirestore([..._tracksRef.current.filter((t:any)=>t.id!=='__genres__'),marker]),500);
-  };
+  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
+  const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
   const isAddingTrack = useRef(false);
   const dragSrcIdx     = useRef<number>(-1);  // admin track list drag
   const userDragSrcIdx = useRef<number>(-1);  // user track list drag
