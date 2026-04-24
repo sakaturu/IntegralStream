@@ -2273,12 +2273,15 @@ const MusicApp: React.FC<MusicAppProps> = ({
         try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(merged)); } catch {}
         return merged;
       });
+      // If any track was corrupted, immediately save clean version back to Firestore
       const hadBadData = remote.some((tr:any) => {
         const url = tr.url||'';
         return url.includes('<') || url.includes('iframe') ||
                (tr.artist||'').includes('<') || (tr.title||'').toLowerCase() === 'song';
       });
-      if (hadBadData) { setTimeout(() => saveMusicToFirestore(cleaned), 100); }
+      if (hadBadData) {
+        setTimeout(() => saveMusicToFirestore(cleaned), 100);
+      }
     });
     return () => { unsubTracks(); };
   }, []);
@@ -2431,6 +2434,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
   // Reorder admin/shared tracks by dragging
   const handleDragReorder = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
+    _lastLocalSave.current = Date.now();
     setTracks(prev => {
       const filtered = prev.filter(t => {
         if (activeTab === 'Vault') return t.isFavorite;
@@ -2446,8 +2450,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
       const next = [...prev];
       next.splice(fromFullIdx, 1);
       next.splice(toFullIdx, 0, fromTrack);
-      _lastLocalSave.current = Date.now();
-      setTimeout(()=>saveMusicToFirestore(next), 100);
+      setTimeout(() => saveMusicToFirestore(next), 100);
       return next;
     });
   };
@@ -3184,7 +3187,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
                   <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
-                    <video autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" crossOrigin="anonymous"/>
+                    <video autoPlay muted loop playsInline preload="auto" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}} src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" crossOrigin="anonymous"/>
 
                   </div>
                 )}
@@ -3239,7 +3242,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Paused: show default video above iframe (zIndex 10 > iframe zIndex 9) */}
                 {currentTrack&&(type as string)!=='audiomack'&&!isPlaying&&(
                   <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10}}>
-                    <video autoPlay muted loop playsInline preload="auto" src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <video autoPlay muted loop playsInline preload="auto" src="https://integralserenity.org/wp-content/uploads/2026/04/Default-video.mp4" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 )}
                 {/* Playing: track thumbnail */}
@@ -4311,7 +4314,7 @@ const App: React.FC = () => {
                   {/* Default video shown when paused */}
                   {!isPlaying && (
                     <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
-                      <video autoPlay muted loop playsInline src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                      <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                     </div>
                   )}
                   <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
@@ -4320,7 +4323,7 @@ const App: React.FC = () => {
                   </>
                 ) : videos.length > 0 ? (
                   <div className="absolute inset-0" onClick={() => { setCurrentVideoId(videos[0].id); setIsPlaying(true); }}>
-                    <video autoPlay muted loop playsInline src="https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <video autoPlay muted loop playsInline src="https://integralserenity.org/wp-content/uploads/2026/04/video-section.mp4" crossOrigin="anonymous" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
