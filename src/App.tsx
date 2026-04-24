@@ -2243,6 +2243,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const cleanTitle = (t: any) => sanitiseTrack(t);
   useEffect(()=>{
     loadMusicFromFirestore().then(remote => {
+      // Extract genres from marker on initial load
+      const genreMarker = remote.find((t:any) => t.id === '__genres__');
+      if (genreMarker && Array.isArray((genreMarker as any).__genres__) && (genreMarker as any).__genres__.length > 0) {
+        const g = (genreMarker as any).__genres__ as string[];
+        setGenres(g);
+        try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(g)); } catch {}
+      }
       if (remote && remote.length > 0) {
         const cleaned = remote.map(sanitiseTrack);
         setTracks(cleaned);
@@ -2264,7 +2271,14 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      const cleaned = remote.map(sanitiseTrack);
+      // Extract genres from special marker if present
+      const genreMarker = remote.find((t:any) => t.id === '__genres__');
+      if (genreMarker && Array.isArray((genreMarker as any).__genres__) && (genreMarker as any).__genres__.length > 0) {
+        const g = (genreMarker as any).__genres__ as string[];
+        setGenres(g);
+        try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(g)); } catch {}
+      }
+      const cleaned = remote.filter((t:any) => t.id !== '__genres__').map(sanitiseTrack);
       if (Date.now() - _lastLocalSave.current < 5000) return;
       setTracks(prev => {
         const remoteIds = new Set(cleaned.map((t:any) => t.id));
@@ -2325,7 +2339,14 @@ const MusicApp: React.FC<MusicAppProps> = ({
     try { localStorage.setItem(`integral_user_tracks_${user}`, JSON.stringify(tracks)); } catch {}
   };
 
-  useEffect(()=>{localStorage.setItem(MUSIC_GENRES_KEY,JSON.stringify(genres));},[genres]);
+  useEffect(()=>{
+    localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(genres));
+    // Save genres to Firestore as a special marker so all devices get them
+    const marker:any = {id:'__genres__',artist:'__system__',title:'__genres__',url:'',
+      category:'Other',addedBy:'system',timestamp:Date.now(),playCount:0,likeCount:0,
+      __genres__: genres};
+    saveMusicToFirestore([..._tracksRef.current.filter((t:any)=>t.id!=='__genres__'), marker]);
+  },[genres]);
   useEffect(()=>{localStorage.setItem('integral_music_genre_colors_v1',JSON.stringify(genreColors));},[genreColors]);
 
   const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||userTracks.find(t=>t.id===currentTrackId)||null,[tracks,userTracks,currentTrackId]);
@@ -2434,7 +2455,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
   // Reorder admin/shared tracks by dragging
   const handleDragReorder = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
-    _lastLocalSave.current = Date.now();
     setTracks(prev => {
       const filtered = prev.filter(t => {
         if (activeTab === 'Vault') return t.isFavorite;
@@ -2450,7 +2470,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
       const next = [...prev];
       next.splice(fromFullIdx, 1);
       next.splice(toFullIdx, 0, fromTrack);
-      setTimeout(() => saveMusicToFirestore(next), 100);
+      _lastLocalSave.current = Date.now();
+      setTimeout(()=>saveMusicToFirestore(next), 100);
       return next;
     });
   };
