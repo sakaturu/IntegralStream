@@ -15,7 +15,7 @@ import {
 
 
 const DEFAULT_MUSIC_GENRES = ['Affirmations', 'Celestial Meditation', 'Classical', 'Country', 'Dance', 'Drum-N-Bass', 'Electronic', 'Enviro-Nature', 'FAV', 'Guided Meditation', 'Hip-Hop', 'Inspirational', 'Integral Serenity', 'Jazz', 'Lounge', 'Multi-Lang', 'Odd', 'Other', 'Pop', 'Rock', 'Silent Meditation', 'Spanish', 'Spiritual'];
-const GENRES_VERSION = 'v3'; // bump this to force-reset genres on all browsers
+const GENRES_VERSION = 'v3';
 const MUSIC_GENRES_KEY     = 'integral_music_genres_v1';
 const MUSIC_REVIEWS_KEY    = 'integral_music_reviews_v1';
 const MUSIC_FAVORITES_KEY  = 'integral_music_favorites_v1';
@@ -2729,10 +2729,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
 }
           }} style={(()=>{const c2=getTabColor(tab.name),active=(tab.name==='All'&&activeTab==='All'&&selectedGenres.length===0)||(tab.name==='Vault'&&activeTab==='Vault')||(tab.name!=='All'&&tab.name!=='Vault'&&selectedGenres.includes(tab.name));return active?{color:c2,backgroundColor:`${c2}25`,borderColor:`${c2}50`,transform:'scale(1.02)'}:{color:`${c2}90`,borderColor:'rgba(0,0,0,0)',backgroundColor:'rgba(0,0,0,0)'};})()}
             className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-normal transition-all flex items-center justify-center px-1 border cursor-pointer">
-            <span className="truncate w-full text-center px-0.5">{shortName}</span>
+            <span className="flex items-center justify-center gap-1 w-full px-0.5"><span className="opacity-50 text-[7px] font-black flex-shrink-0">{count}</span><span className="truncate">{shortName}</span></span>
           </button>
         </Tooltip>
-        <span className="absolute -top-1.5 left-0 min-w-[16px] h-[16px] rounded-full bg-black/80 border border-white/20 text-white flex items-center justify-center px-0.5 text-[8px] font-black z-10 pointer-events-none">{count}</span>
         {del&&<button onClick={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"/></button>}
       </div>
     );
@@ -3168,9 +3167,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
                             ? {color:c, backgroundColor:`${c}25`, borderColor:`${c}50`}
                             : {color:'#ffffff', borderColor:'rgba(255,255,255,0.08)', backgroundColor:'transparent'}}
                         >
-                          {tab.name}
+                          <span className="opacity-50 text-[7px] font-black mr-0.5">{tab.name==="All"?tracks.length:tab.name==="Vault"?tracks.filter(t=>t.isFavorite).length:tracks.filter(t=>t.category===tab.name).length}</span>{tab.name}
                         </button>
-                        <span className="absolute -top-1.5 left-0 min-w-[15px] h-[15px] rounded-full bg-black/80 border border-white/20 text-white flex items-center justify-center px-0.5 text-[8px] font-black z-10 pointer-events-none">{tab.name==='All'?tracks.length:tab.name==='Vault'?tracks.filter(t=>t.isFavorite).length:tracks.filter(t=>t.category===tab.name).length}</span>
                         {isAuthorized && !['All','Vault'].includes(tab.name) && (
                           <button
                             type="button"
