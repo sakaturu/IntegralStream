@@ -12,7 +12,6 @@ import {
   loadMusicFromFirestore, saveMusicToFirestore, subscribeToMusic,
   loadMusicReviewsFromFirestore, saveMusicReviewsToFirestore,
 } from './services/firebase';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 
 const DEFAULT_MUSIC_GENRES = ['Affirmations', 'Celestial Meditation', 'Classical', 'Country', 'Dance', 'Drum-N-Bass', 'Electronic', 'Enviro-Nature', 'FAV', 'Guided Meditation', 'Hip-Hop', 'Inspirational', 'Integral Serenity', 'Jazz', 'Lounge', 'Multi-Lang', 'Odd', 'Other', 'Pop', 'Rock', 'Silent Meditation', 'Spanish', 'Spiritual'];
@@ -3226,7 +3225,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
                   <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
-                    <VideoBackground src={defaultMusicVideoUrl} fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
+                    <VideoBackground src="/Default-video.mp4" fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
 
                   </div>
                 )}
@@ -3281,7 +3280,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Paused: show default video above iframe (zIndex 10 > iframe zIndex 9) */}
                 {currentTrack&&(type as string)!=='audiomack'&&!isPlaying&&(
                   <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10}}>
-                    <VideoBackground src={defaultMusicVideoUrl} fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
+                    <VideoBackground src="/Default-video.mp4" fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
                   </div>
                 )}
                 {/* Playing: track thumbnail */}
@@ -3606,8 +3605,6 @@ const StarRatingWidget=({value,onChange,size='text-sm'}:{value:number;onChange?:
 );
 
 const App: React.FC = () => {
-  const [defaultMusicVideoUrl, setDefaultMusicVideoUrl] = React.useState('/Default-video.mp4');
-  const [defaultSectionVideoUrl, setDefaultSectionVideoUrl] = React.useState('/video-section.mp4');
   const [isVideoShuffleMode, setIsVideoShuffleMode] = useState(false);
   const isVideoShuffleModeRef = useRef(false);
   useEffect(()=>{ isVideoShuffleModeRef.current = isVideoShuffleMode; }, [isVideoShuffleMode]);
@@ -4359,7 +4356,7 @@ const App: React.FC = () => {
                   {/* Default video shown when paused */}
                   {!isPlaying && (
                     <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
-                      <VideoBackground src={defaultSectionVideoUrl} fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
+                      <VideoBackground src="/video-section.mp4" fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
                     </div>
                   )}
                   <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
@@ -4368,7 +4365,7 @@ const App: React.FC = () => {
                   </>
                 ) : videos.length > 0 ? (
                   <div className="absolute inset-0" onClick={() => { setCurrentVideoId(videos[0].id); setIsPlaying(true); }}>
-                    <VideoBackground src={defaultSectionVideoUrl} fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
+                    <VideoBackground src="/video-section.mp4" fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
