@@ -3225,7 +3225,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Idle state — only shown when no track selected */}
                 {!currentTrackId && (
                   <div style={{position:'absolute',inset:0,zIndex:2,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
-                    <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/Default-video.mp4?alt=media" fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
+                    <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/Default-video.mp4?alt=media&token=eb9533f2-458f-4138-99b4-d6a2eb2d17a4" fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
 
                   </div>
                 )}
@@ -3280,7 +3280,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
                 {/* Paused: show default video above iframe (zIndex 10 > iframe zIndex 9) */}
                 {currentTrack&&(type as string)!=='audiomack'&&!isPlaying&&(
                   <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10}}>
-                    <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/Default-video.mp4?alt=media" fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
+                    <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/Default-video.mp4?alt=media&token=eb9533f2-458f-4138-99b4-d6a2eb2d17a4" fallbackColor="linear-gradient(135deg,#0d0020,#1a0040,#050015)"/>
                   </div>
                 )}
                 {/* Playing: track thumbnail */}
@@ -4356,7 +4356,7 @@ const App: React.FC = () => {
                   {/* Default video shown when paused */}
                   {!isPlaying && (
                     <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
-                      <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/video-section.mp4?alt=media" fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
+                      <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/video-section.mp4?alt=media&token=ba46fde6-91ff-43ab-bf37-6bbdf3e29cbc" fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
                     </div>
                   )}
                   <div style={{opacity:videoCrossfading?0:1,transform:videoCrossfading?'scale(0.98)':'scale(1)',transition:'opacity 0.6s ease, transform 0.6s ease'}}>
@@ -4365,7 +4365,7 @@ const App: React.FC = () => {
                   </>
                 ) : videos.length > 0 ? (
                   <div className="absolute inset-0" onClick={() => { setCurrentVideoId(videos[0].id); setIsPlaying(true); }}>
-                    <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/video-section.mp4?alt=media" fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
+                    <VideoBackground src="https://firebasestorage.googleapis.com/v0/b/integralstream-87a5c.firebasestorage.app/o/video-section.mp4?alt=media&token=ba46fde6-91ff-43ab-bf37-6bbdf3e29cbc" fallbackColor="linear-gradient(135deg,#000814,#001233,#000408)"/>
                   </div>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-slate-600 uppercase font-black text-xs gap-4 bg-slate-950"><i className="fa-solid fa-cloud fa-3x animate-pulse text-slate-900"></i> Select Video</div>
