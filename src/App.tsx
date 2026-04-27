@@ -2749,7 +2749,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
 }
           }} style={(()=>{const c2=getTabColor(tab.name),active=(tab.name==='All'&&activeTab==='All'&&selectedGenres.length===0)||(tab.name==='Vault'&&activeTab==='Vault')||(tab.name!=='All'&&tab.name!=='Vault'&&selectedGenres.includes(tab.name));return active?{color:c2,backgroundColor:`${c2}25`,borderColor:`${c2}50`,transform:'scale(1.02)'}:{color:`${c2}90`,borderColor:'rgba(0,0,0,0)',backgroundColor:'rgba(0,0,0,0)'};})()}
             className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-normal transition-all flex items-center justify-center px-1 border cursor-pointer">
-            <span className="flex items-center justify-center gap-1 w-full px-0.5"><span className="genre-count opacity-0 group-hover/tab:opacity-100 text-[7px] group-hover/tab:text-[9px] font-black flex-shrink-0 transition-all duration-150">{count}</span><span className="truncate">{shortName}</span></span>
+            <span className="flex items-center justify-center gap-1 w-full px-0.5"><span className="opacity-0 group-hover/tab:opacity-100 text-[7px] group-hover/tab:text-[9px] font-black flex-shrink-0 transition-all duration-150">{count}</span><span className="truncate">{shortName}</span></span>
           </button>
         </Tooltip>
         {del&&<button onClick={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"/></button>}
