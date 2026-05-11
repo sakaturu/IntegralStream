@@ -2227,12 +2227,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [search,     setSearch]     = useState('');
   const [showAddForm,setShowAddForm]= useState(false);
   const [showAddGenreForm,setShowAddGenreForm]=useState(false);
-  const [renamingGenre,setRenamingGenre]=useState<string|null>(null);
-  const [renameGenreVal,setRenameGenreVal]=useState('');
   const [showReviewPanel,setShowReviewPanel]=useState(false);
   const [reviewingTrackId,setReviewingTrackId]=useState<string|null>(null);
   const [showMusicReviews,setShowMusicReviews]=useState(false);
-  const [musicShareOpen, setMusicShareOpen] = useState(false);
   const [showMusicVault,setShowMusicVault]=useState(false);
   const [reviewRating,setReviewRating]=useState(5);
   const [reviewComment,setReviewComment]=useState('');
@@ -2455,24 +2452,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=>{ cancelled=true; if(scTimerRef.current){clearTimeout(scTimerRef.current);scTimerRef.current=null;} };
   },[currentTrack?.id,isPlaying,playNextTrack]);
 
-  // YouTube wall-clock timer — fires even when tab is in background
-  const ytTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-  useEffect(()=>{
-    if(ytTimerRef.current){clearTimeout(ytTimerRef.current);ytTimerRef.current=null;}
-    if(!currentTrack||!isPlaying) return;
-    const url=currentTrack.url||'';
-    if(!url.includes('youtu')) return;
-    let cancelled=false; const t0=Date.now();
-    const vid=url.includes('youtu.be/')?url.split('youtu.be/')[1]?.split(/[?&#]/)[0]
-              :url.includes('v=')?url.split('v=')[1]?.split(/[&#]/)[0]:'';
-    const go=(secs:number)=>{ if(cancelled)return; const w=Math.max(3000,secs*1000-(Date.now()-t0)+4000); ytTimerRef.current=setTimeout(()=>{if(!cancelled)playNextTrack();},w); };
-    if(vid){ fetch('/yt-api/youtube/v3/videos?part=contentDetails&id='+vid+'&key=AIzaSyD8RJ2blSlO3RkrmZhF1Khp6zzLnMrWvKI').then(r=>r.json()).then(d=>{ const iso=d?.items?.[0]?.contentDetails?.duration||''; const m=iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); const s=m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0; go(s>10?s:5*60); }).catch(()=>go(5*60)); } else go(5*60);
-    return ()=>{ cancelled=true; if(ytTimerRef.current){clearTimeout(ytTimerRef.current);ytTimerRef.current=null;} };
-  },[currentTrack?.id,isPlaying,playNextTrack]);
-
   const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
   const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
-  const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;setGenres(p=>p.map(g=>g===oldName?n:g));setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
   const isAddingTrack = useRef(false);
   const dragSrcIdx     = useRef<number>(-1);  // admin track list drag
   const userDragSrcIdx = useRef<number>(-1);  // user track list drag
@@ -2707,20 +2688,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
     }
   },[isPlaying, currentTrackId, type]);
 
-  // ── Spacebar → toggle play/pause ────────────────────────────────────────────
-  useEffect(()=>{
-    const handler=(e:KeyboardEvent)=>{
-      const tag=(e.target as HTMLElement)?.tagName;
-      if(tag==='INPUT'||tag==='TEXTAREA') return;
-      if(e.code==='Space'||e.key===' '){
-        e.preventDefault();
-        if(currentTrackId) setIsPlaying(p=>!p);
-      }
-    };
-    window.addEventListener('keydown',handler);
-    return ()=>window.removeEventListener('keydown',handler);
-  },[currentTrackId]);
-
   const handleLikeTrack=(id:string,e:React.MouseEvent)=>{
     e.stopPropagation();
     if(!isUserLocked&&!isAuthorized){onPendingReview();return;}
@@ -2798,8 +2765,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
           </button>
         </Tooltip>
         {del&&<button onClick={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"/></button>}
-        {del&&<button onClick={e=>{e.stopPropagation();setRenamingGenre(tab.name);setRenameGenreVal(tab.name);}} className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-purple-600 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer" title="Rename genre"><i className="fa-solid fa-pen text-[7px]"/></button>}
-        {del&&renamingGenre===tab.name&&(<div className="absolute top-full mt-1 left-0 z-50 flex gap-1 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl" onClick={e=>e.stopPropagation()}><input autoFocus value={renameGenreVal} onChange={e=>setRenameGenreVal(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')handleRenameGenre(tab.name,renameGenreVal);if(e.key==='Escape')setRenamingGenre(null);}} className="h-6 w-24 px-2 rounded-lg bg-white/5 border border-purple-500/30 text-white text-[9px] font-bold focus:outline-none"/><button onClick={()=>handleRenameGenre(tab.name,renameGenreVal)} className="h-6 px-2 rounded-lg bg-purple-600 text-white text-[8px] font-black uppercase hover:bg-purple-500">OK</button><button onClick={()=>setRenamingGenre(null)} className="h-6 px-1.5 rounded-lg bg-white/5 text-slate-400 text-[8px] hover:text-white">✕</button></div>)}
       </div>
     );
   };
@@ -3081,7 +3046,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                         {isAuthorized ? (
                           <>
                             <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
-                            <button onClick={e=>{e.stopPropagation();setGenres(p=>p.includes('Favorite')?p:[...p,'Favorite']);setUserTracks(p=>p.map(t=>t.id===track.id?{...t,category:'Favorite'}:t));}} className="w-6 h-6 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[11px]"/></button>
                             <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
                           </>
                         ) : (
@@ -3163,10 +3127,9 @@ const MusicApp: React.FC<MusicAppProps> = ({
                   {/* Action buttons */}
                   <div className="flex flex-col flex-shrink-0 self-stretch relative w-6 ml-1">
                     {isAuthorized ? (
-                      /* Admin: edit + favorite + delete */
+                      /* Admin: edit + delete only */
                       <>
                         <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all"><i className="fa-solid fa-pen text-[7px]"/></button>
-                        <button onClick={e=>{e.stopPropagation();setGenres(p=>p.includes('Favorite')?p:[...p,'Favorite']);setTracks(p=>p.map(t=>t.id===track.id?{...t,category:'Favorite'}:t));}} className="absolute top-1/2 -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[7px]"/></button>
                         <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
                       </>
                     ) : (
@@ -3194,11 +3157,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
         {/* ── Full-screen visual area ── */}
         <section className="music-visual-section flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
           {currentTrack&&(
-            <div style={{position:'fixed',top:0,left:0,width:'1px',height:'1px',overflow:'hidden',opacity:0.001,pointerEvents:'none',zIndex:-1}}>
+            <div className="absolute opacity-0 pointer-events-none w-0 h-0">
               {type==='soundcloud'
                 ? <iframe key={`sc-${currentTrackId}`} id="sc-player" width="1" height="1" scrolling="no" frameBorder="no" allow="autoplay" src={embedUrl}/>
                 : (type as string)!=='audiomack' &&
-                  <iframe key="yt-player" id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
+                  <iframe key={`yt-${currentTrackId}`} id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
                     onLoad={e=>{ try{(e.target as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch{} }}
                   />
               }
@@ -3250,21 +3213,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
                             onMouseDown={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}}
                             className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/mtab:opacity-100 transition-opacity z-30 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"
                           ><i className="fa-solid fa-xmark text-[7px]"/></button>
-                        )}
-                        {isAuthorized && !['All','Vault'].includes(tab.name) && (
-                          <button
-                            type="button"
-                            onMouseDown={e=>{e.stopPropagation();setRenamingGenre(tab.name);setRenameGenreVal(tab.name);}}
-                            className="absolute -top-1 -left-1 w-3.5 h-3.5 rounded-full bg-purple-600 text-white flex items-center justify-center opacity-0 group-hover/mtab:opacity-100 transition-opacity z-30 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"
-                            title="Rename genre"
-                          ><i className="fa-solid fa-pen text-[6px]"/></button>
-                        )}
-                        {isAuthorized && !['All','Vault'].includes(tab.name) && renamingGenre===tab.name && (
-                          <div className="absolute top-full mt-1 left-0 z-50 flex gap-1 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl" onMouseDown={e=>e.stopPropagation()}>
-                            <input autoFocus value={renameGenreVal} onChange={e=>setRenameGenreVal(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')handleRenameGenre(tab.name,renameGenreVal);if(e.key==='Escape')setRenamingGenre(null);}} className="h-6 w-24 px-2 rounded-lg bg-white/5 border border-purple-500/30 text-white text-[9px] font-bold focus:outline-none"/>
-                            <button onMouseDown={()=>handleRenameGenre(tab.name,renameGenreVal)} className="h-6 px-2 rounded-lg bg-purple-600 text-white text-[8px] font-black uppercase hover:bg-purple-500">OK</button>
-                            <button onMouseDown={()=>setRenamingGenre(null)} className="h-6 px-1.5 rounded-lg bg-white/5 text-slate-400 text-[8px] hover:text-white">✕</button>
-                          </div>
                         )}
                       </div>
                     );
@@ -3366,8 +3314,7 @@ const MusicApp: React.FC<MusicAppProps> = ({
             
             <div className="w-full mt-2 px-8">
               <div className="bg-white/5 border border-white/5 rounded-3xl flex flex-wrap items-center px-8 py-4 w-full gap-3">
-                {currentTrack?(<><Tooltip label={`${currentTrack.category} · ${tracks.filter(t=>t.category===currentTrack.category).length} tracks`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span></Tooltip><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{displayName(currentUser)}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={()=>setShowVisualizer(v=>!v)} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${showVisualizer?"text-purple-400 bg-purple-500/20 border-purple-500/40":"text-slate-500 hover:text-white border-white/10 bg-white/5"}`}><i className="fa-solid fa-wave-square text-[10px]"/><span>Viz</span></button><button onClick={()=>setGalleryTrackId(v=>v===currentTrack.id?null:currentTrack.id)} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${galleryTrackId===currentTrack.id?"text-purple-400 bg-purple-500/20 border-purple-500/40":"text-slate-500 hover:text-white border-white/10 bg-white/5"}`}><i className="fa-solid fa-images text-[10px]"/><span>Gallery</span></button><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button>
-                {currentTrack&&<button onClick={()=>setMusicShareOpen(true)} className="text-slate-500 hover:text-cyan-400 transition-colors" title="Share"><i className="fa-solid fa-share-nodes text-[16px]"/></button>}</>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
+                {currentTrack?(<><Tooltip label={`${currentTrack.category} · ${tracks.filter(t=>t.category===currentTrack.category).length} tracks`}><span className="px-3 py-1 border text-[10px] font-black uppercase rounded-full tracking-widest shrink-0 cursor-default" style={getTagStyles(currentTrack.category)}>{currentTrack.category}</span></Tooltip><span className="text-slate-600 text-[8px]">|</span><span className="text-[11px] font-black uppercase tracking-widest text-purple-400">{currentTrack.artist}</span><span className="text-slate-600 text-[8px]">—</span><span className="text-[11px] font-bold text-slate-300 truncate">{currentTrack.title}</span><div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">{currentTrack.playCount||0}</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">{currentTrack.likeCount||0}</span></div><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicReviews(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">{approvedReviews.filter(r=>r.trackId===currentTrack.id).length}</span></button><button onClick={()=>{if(!isUserLocked&&!isAuthorized){onPendingReview();return;}setShowMusicVault(v=>!v);}} className="flex items-center gap-2 hover:opacity-70 transition-opacity"><i className="fa-solid fa-heart text-pink-400 text-[11px]"/><span className="text-[10px] font-black text-pink-400 uppercase tracking-widest">{displayName(currentUser)}'s Music Vault::</span><span className="text-[13px] font-black text-white">{tracks.filter(t=>t.isFavorite).length}</span></button></div><button onClick={()=>setShowVisualizer(v=>!v)} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${showVisualizer?"text-purple-400 bg-purple-500/20 border-purple-500/40":"text-slate-500 hover:text-white border-white/10 bg-white/5"}`}><i className="fa-solid fa-wave-square text-[10px]"/><span>Viz</span></button><button onClick={()=>setGalleryTrackId(v=>v===currentTrack.id?null:currentTrack.id)} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${galleryTrackId===currentTrack.id?"text-purple-400 bg-purple-500/20 border-purple-500/40":"text-slate-500 hover:text-white border-white/10 bg-white/5"}`}><i className="fa-solid fa-images text-[10px]"/><span>Gallery</span></button><button onClick={handleMusicFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen"><i className={`fa-solid ${isMusicFullscreen?'fa-compress':'fa-expand'} text-[16px]`}/></button></>):(<div className="flex items-center gap-6"><div className="flex items-center gap-2"><span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Listened::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Liked::</span><span className="text-[13px] font-black text-white">0</span></div><div className="flex items-center gap-2"><span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Reviews::</span><span className="text-[13px] font-black text-white">0</span></div></div>)}
               </div>
             </div>
 
@@ -3603,53 +3550,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
           </div>
         </div>
       )}
-      {/* ── Music Share Modal ── */}
-      {musicShareOpen && currentTrack && (()=>{
-        const url = currentTrack.url;
-        const title = encodeURIComponent(`${currentTrack.artist} - ${currentTrack.title}`);
-        const enc = encodeURIComponent(url);
-        const msg = encodeURIComponent(`${currentTrack.artist} - ${currentTrack.title}\n${url}`);
-        const opts = [
-          { label:'WhatsApp',  icon:'fa-brands fa-whatsapp',   color:'#25D366', href:`https://wa.me/?text=${msg}` },
-          { label:'Messenger', icon:'fa-brands fa-facebook-messenger', color:'#0084FF', href:`https://www.facebook.com/dialog/send?link=${enc}&app_id=291494419107518&redirect_uri=${enc}` },
-          { label:'Telegram',  icon:'fa-brands fa-telegram',   color:'#229ED9', href:`https://t.me/share/url?url=${enc}&text=${title}` },
-          { label:'X / Twitter',icon:'fa-brands fa-x-twitter', color:'#000000', href:`https://twitter.com/intent/tweet?url=${enc}&text=${title}` },
-          { label:'Facebook',  icon:'fa-brands fa-facebook',   color:'#1877F2', href:`https://www.facebook.com/sharer/sharer.php?u=${enc}` },
-          { label:'Email',     icon:'fa-solid fa-envelope',    color:'#8b5cf6', href:`mailto:?subject=${title}&body=${msg}` },
-          { label:'SMS / Text',icon:'fa-solid fa-comment-sms', color:'#0ea5e9', href:`sms:?body=${msg}` },
-        ];
-        return (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-md" onClick={()=>setMusicShareOpen(false)}>
-            <div className="bg-slate-950 border border-purple-500/20 rounded-3xl p-6 w-[340px] shadow-2xl flex flex-col gap-5" onClick={e=>e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-purple-400 mb-1">Share Track</p>
-                  <p className="text-[13px] font-bold text-white truncate">{currentTrack.title}</p>
-                  <p className="text-[11px] font-black uppercase text-purple-400 truncate">{currentTrack.artist}</p>
-                </div>
-                <button onClick={()=>setMusicShareOpen(false)} className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all flex-shrink-0"><i className="fa-solid fa-xmark text-[11px]"/></button>
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {opts.map(o=>(
-                  <a key={o.label} href={o.href} target="_blank" rel="noreferrer" onClick={()=>setMusicShareOpen(false)}
-                    className="flex flex-col items-center gap-1.5 py-3 rounded-2xl text-white transition-all hover:scale-105 active:scale-95"
-                    style={{background:`${o.color}22`,border:`1px solid ${o.color}44`}}>
-                    <i className={`${o.icon} text-[22px]`} style={{color:o.color}}/>
-                    <span className="text-[8px] font-black uppercase tracking-wide leading-none text-center text-slate-300">{o.label}</span>
-                  </a>
-                ))}
-              </div>
-              <button onClick={()=>{navigator.clipboard.writeText(url);setTimeout(()=>setMusicShareOpen(false),1000);}}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 text-[11px] font-black uppercase tracking-wider transition-all">
-                <i className="fa-solid fa-link text-[11px]"/>&nbsp;Copy Link
-              </button>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 };
+
+
+
 
 const DATA_KEY = `integral_vault_v${LIBRARY_VERSION}`;
 const VERSION_KEY = `integral_version_v${LIBRARY_VERSION}`;
@@ -3759,7 +3665,6 @@ const App: React.FC = () => {
   const [activeSecondaryView, setActiveSecondaryView] = useState<'none' | 'reviews' | 'vault' | 'moderation'>('none');
   const [reviewInitialTab, setReviewInitialTab] = useState<'Read' | 'Write'>('Read');
   const [showVideoReviews, setShowVideoReviews] = useState(false);
-  const [videoShareOpen, setVideoShareOpen] = useState(false);
   const videoReviewRef = useRef<HTMLDivElement>(null);
   useEffect(()=>{
     if(showVideoReviews && videoReviewRef.current){
@@ -4161,22 +4066,6 @@ const App: React.FC = () => {
   useEffect(()=>{
     if(!isPlaying && videoTimerRef.current){ clearTimeout(videoTimerRef.current); videoTimerRef.current=null; }
   },[isPlaying]);
-
-  // ── Spacebar → toggle play/pause (video) ────────────────────────────────────
-  useEffect(()=>{
-    const handler=(e:KeyboardEvent)=>{
-      // Skip when music app is open — its own handler takes over
-      if(showMusic) return;
-      const tag=(e.target as HTMLElement)?.tagName;
-      if(tag==='INPUT'||tag==='TEXTAREA') return;
-      if(e.code==='Space'||e.key===' '){
-        e.preventDefault();
-        if(currentVideoId) setIsPlaying(p=>!p);
-      }
-    };
-    window.addEventListener('keydown',handler);
-    return ()=>window.removeEventListener('keydown',handler);
-  },[currentVideoId, showMusic]);
   useEffect(()=>{
     if(videoTimerRef.current){ clearTimeout(videoTimerRef.current); videoTimerRef.current=null; }
     videoEndedRef.current = false;
@@ -4498,7 +4387,6 @@ const App: React.FC = () => {
                   <button onClick={handleVideoFullscreen} className="text-slate-500 hover:text-white transition-colors ml-auto" title="Fullscreen">
                     <i className={`fa-solid ${isVideoFullscreen ? 'fa-compress' : 'fa-expand'} text-[16px]`}/>
                   </button>
-                  {currentVideo&&<button onClick={()=>setVideoShareOpen(true)} className="text-slate-500 hover:text-cyan-400 transition-colors" title="Share"><i className="fa-solid fa-share-nodes text-[16px]"/></button>}
                 </div>
               </div>
             )}
@@ -4792,52 +4680,6 @@ const App: React.FC = () => {
             onUserChange={(user, locked) => { setCurrentUser(user); setIsUserLocked(locked); }}
           />
       </div>
-
-      {/* ── Video Share Modal ── */}
-      {videoShareOpen && currentVideo && (()=>{
-        const rawUrl = currentVideo.url || '';
-        const url = rawUrl.includes('http') ? rawUrl : `https://www.youtube.com/watch?v=${rawUrl}`;
-        const title = encodeURIComponent(currentVideo.prompt || 'Watch this video');
-        const enc = encodeURIComponent(url);
-        const msg = encodeURIComponent(`${currentVideo.prompt || 'Watch this video'}\n${url}`);
-        const opts = [
-          { label:'WhatsApp',  icon:'fa-brands fa-whatsapp',          color:'#25D366', href:`https://wa.me/?text=${msg}` },
-          { label:'Messenger', icon:'fa-brands fa-facebook-messenger', color:'#0084FF', href:`https://www.facebook.com/dialog/send?link=${enc}&app_id=291494419107518&redirect_uri=${enc}` },
-          { label:'Telegram',  icon:'fa-brands fa-telegram',           color:'#229ED9', href:`https://t.me/share/url?url=${enc}&text=${title}` },
-          { label:'X / Twitter',icon:'fa-brands fa-x-twitter',         color:'#e5e5e5', href:`https://twitter.com/intent/tweet?url=${enc}&text=${title}` },
-          { label:'Facebook',  icon:'fa-brands fa-facebook',           color:'#1877F2', href:`https://www.facebook.com/sharer/sharer.php?u=${enc}` },
-          { label:'Email',     icon:'fa-solid fa-envelope',            color:'#8b5cf6', href:`mailto:?subject=${title}&body=${msg}` },
-          { label:'SMS / Text',icon:'fa-solid fa-comment-sms',         color:'#0ea5e9', href:`sms:?body=${msg}` },
-        ];
-        return (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-md" onClick={()=>setVideoShareOpen(false)}>
-            <div className="bg-slate-950 border border-blue-500/20 rounded-3xl p-6 w-[340px] shadow-2xl flex flex-col gap-5" onClick={e=>e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-blue-400 mb-1">Share Video</p>
-                  <p className="text-[13px] font-bold text-white truncate">{currentVideo.prompt || 'Video'}</p>
-                  <p className="text-[10px] font-black uppercase text-blue-400 truncate">{currentVideo.category}</p>
-                </div>
-                <button onClick={()=>setVideoShareOpen(false)} className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all flex-shrink-0"><i className="fa-solid fa-xmark text-[11px]"/></button>
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {opts.map(o=>(
-                  <a key={o.label} href={o.href} target="_blank" rel="noreferrer" onClick={()=>setVideoShareOpen(false)}
-                    className="flex flex-col items-center gap-1.5 py-3 rounded-2xl text-white transition-all hover:scale-105 active:scale-95"
-                    style={{background:`${o.color}22`,border:`1px solid ${o.color}44`}}>
-                    <i className={`${o.icon} text-[22px]`} style={{color:o.color}}/>
-                    <span className="text-[8px] font-black uppercase tracking-wide leading-none text-center text-slate-300">{o.label}</span>
-                  </a>
-                ))}
-              </div>
-              <button onClick={()=>{navigator.clipboard.writeText(url);setTimeout(()=>setVideoShareOpen(false),1000);}}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 text-[11px] font-black uppercase tracking-wider transition-all">
-                <i className="fa-solid fa-link text-[11px]"/>&nbsp;Copy Link
-              </button>
-            </div>
-          </div>
-        );
-      })()}
 
     </div>
   );

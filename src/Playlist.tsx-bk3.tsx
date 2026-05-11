@@ -98,7 +98,6 @@ const Playlist: React.FC<PlaylistProps> = ({
   const [editUrl, setEditUrl] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [shareSuccessId, setShareSuccessId] = useState<string | null>(null);
-  const [shareModalVideo, setShareModalVideo] = useState<VideoItem | null>(null);
   
   const [isAddingCategoryInline, setIsAddingCategoryInline] = useState(false);
   const [inlineCategoryName, setInlineCategoryName] = useState('');
@@ -137,12 +136,10 @@ const Playlist: React.FC<PlaylistProps> = ({
 
   const handleShare = (video: VideoItem) => {
     const url = video.url.includes('http') ? video.url : `https://www.youtube.com/watch?v=${getCleanId(video.url)}`;
-    const title = video.prompt || 'Check this out';
-    if (navigator.share) {
-      navigator.share({ title, url }).catch(() => {});
-    } else {
-      setShareModalVideo({...video, url});
-    }
+    navigator.clipboard.writeText(url).then(() => {
+      setShareSuccessId(video.id);
+      setTimeout(() => setShareSuccessId(null), 2000);
+    });
   };
 
   const filteredVideos = useMemo(() => {
@@ -244,7 +241,7 @@ const Playlist: React.FC<PlaylistProps> = ({
         </button>
         {isDeletable && (<>
           <button onClick={(e) => { e.stopPropagation(); onRemoveCategory(tab.name); }} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"></i></button>
-          <button onClick={e=>{e.stopPropagation();setRenamingTab(tab.name);setRenameTabVal(tab.name);}} className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer" title="Rename category"><i className="fa-solid fa-pen text-[7px]"/></button>
+          <button onClick={e=>{e.stopPropagation();setRenamingTab(tab.name);setRenameTabVal(tab.name);}} className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-pen text-[7px]"/></button>
           {renamingTab===tab.name&&(<div className="absolute top-full mt-1 left-0 z-50 flex gap-1 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl" onClick={e=>e.stopPropagation()}><input autoFocus value={renameTabVal} onChange={e=>setRenameTabVal(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){onRenameCategory?.(tab.name,renameTabVal);setRenamingTab(null);}if(e.key==='Escape')setRenamingTab(null);}} className="h-6 w-24 px-2 rounded-lg bg-white/5 border border-blue-500/30 text-white text-[9px] font-bold focus:outline-none"/><button onClick={()=>{onRenameCategory?.(tab.name,renameTabVal);setRenamingTab(null);}} className="h-6 px-2 rounded-lg bg-blue-600 text-white text-[8px] font-black uppercase hover:bg-blue-500">OK</button><button onClick={()=>setRenamingTab(null)} className="h-6 px-1.5 rounded-lg bg-white/5 text-slate-400 text-[8px] hover:text-white">✕</button></div>)}
         </>)}
       </div>
@@ -385,8 +382,6 @@ const Playlist: React.FC<PlaylistProps> = ({
                       {isAuthorized ? (
                         <>
                           <button onClick={e=>{e.stopPropagation();setEditingVideoId(v.id);setEditPrompt(v.prompt||'');setEditCat(v.category||'');setEditUrl(v.url||'');}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
-                          <button onClick={e => { e.stopPropagation(); if (!categories.includes('Favorite')) onAddCategory('Favorite', '#f59e0b'); onEditVideo?.(v.id, v.prompt||'', 'Favorite', v.url||''); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[11px]"/></button>
-                          <button onClick={e=>{e.stopPropagation();handleShare(v);}} className={`w-6 h-6 flex items-center justify-center transition-all ${shareSuccessId===v.id?'text-green-400':'text-slate-600 hover:text-cyan-400'}`} title="Share"><i className={`fa-solid ${shareSuccessId===v.id?'fa-check':'fa-share-nodes'} text-[11px]`}/></button>
                           <button onClick={e => { e.stopPropagation(); onRemove(v.id); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[17px]"/></button>
                         </>
                       ) : (
@@ -396,7 +391,6 @@ const Playlist: React.FC<PlaylistProps> = ({
                             ? <button className="w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[15px]"/></button>
                             : <button onClick={e=>{e.stopPropagation();onSelect(v);onWriteReview?.(v.id,0,'');}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[15px]"/></button>}
                           <button onClick={e=>{e.stopPropagation();onToggleFavorite(v.id);}} className={`w-6 h-6 flex items-center justify-center transition-all ${userFavorites.includes(v.id)?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${userFavorites.includes(v.id)?'solid':'regular'} fa-heart text-[15px]`}/></button>
-                          <button onClick={e=>{e.stopPropagation();handleShare(v);}} className={`w-6 h-6 flex items-center justify-center transition-all ${shareSuccessId===v.id?'text-green-400':'text-slate-600 hover:text-cyan-400'}`} title="Share"><i className={`fa-solid ${shareSuccessId===v.id?'fa-check':'fa-share-nodes'} text-[15px]`}/></button>
                           <button onClick={e => { e.stopPropagation(); onRemove(v.id); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[17px]"/></button>
                         </>
                       )}
@@ -476,8 +470,6 @@ const Playlist: React.FC<PlaylistProps> = ({
               {isAuthorized ? (
                 <>
                   <button onClick={(e) => { e.stopPropagation(); setEditingVideoId(video.id); setEditPrompt(video.prompt||''); setEditCat(video.category||''); setEditUrl(video.url||''); }} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[7px]"/></button>
-                  <button onClick={(e) => { e.stopPropagation(); handleShare(video); }} className={`absolute top-1/2 -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-cyan-500/20 border border-cyan-500/40 transition-all ${shareSuccessId===video.id?'text-green-400 bg-green-500/20 border-green-500/40':'text-cyan-400 hover:bg-cyan-500 hover:text-white'}`} title="Share"><i className={`fa-solid ${shareSuccessId===video.id?'fa-check':'fa-share-nodes'} text-[7px]`}/></button>
-                  <button onClick={(e) => { e.stopPropagation(); if (!categories.includes('Favorite')) onAddCategory('Favorite', '#f59e0b'); onEditVideo?.(video.id, video.prompt||'', 'Favorite', video.url||''); }} className="absolute bottom-8 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[7px]"/></button>
                   <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
                 </>
               ) : (
@@ -488,7 +480,6 @@ const Playlist: React.FC<PlaylistProps> = ({
                   <div className="flex flex-col items-center justify-center flex-1 gap-0.5 pt-7 pb-7">
                     <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked){onRequestIdentify?.();return;} onToggleLike?.(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${((video as any).likedBy||[]).includes(currentUser) ? 'text-blue-400' : 'text-slate-600 hover:text-blue-400'}`} title="Like"><i className={`fa-${((video as any).likedBy||[]).includes(currentUser) ? 'solid' : 'regular'} fa-thumbs-up text-[11px]`}/></button>
                     <button onClick={(e) => { e.stopPropagation(); if(!isUserLocked){onRequestIdentify?.();return;} onToggleFavorite(video.id); }} className={`w-6 h-6 flex items-center justify-center transition-all ${userFavorites.includes(video.id) ? 'text-pink-400' : 'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${userFavorites.includes(video.id) ? 'solid' : 'regular'} fa-heart text-[11px]`}/></button>
-                    <button onClick={(e) => { e.stopPropagation(); handleShare(video); }} className={`w-6 h-6 flex items-center justify-center transition-all ${shareSuccessId===video.id ? 'text-green-400' : 'text-slate-600 hover:text-cyan-400'}`} title="Share"><i className={`fa-solid ${shareSuccessId===video.id ? 'fa-check' : 'fa-share-nodes'} text-[11px]`}/></button>
                   </div>
                   {(isUserLocked&&(video as any).addedBy===currentUser) && <button onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(video.id); }} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>}
                 </>
@@ -499,52 +490,6 @@ const Playlist: React.FC<PlaylistProps> = ({
           </div>
         )}
       </div>
-
-      {/* ── Share Modal ── */}
-      {shareModalVideo && (() => {
-        const sv = shareModalVideo;
-        const url = sv.url;
-        const title = encodeURIComponent(sv.prompt || 'Check this out');
-        const enc = encodeURIComponent(url);
-        const shareOptions = [
-          { label: 'WhatsApp',  icon: 'fa-brands fa-whatsapp',  color: 'bg-green-600 hover:bg-green-500',   href: `https://wa.me/?text=${title}%20${enc}` },
-          { label: 'Telegram',  icon: 'fa-brands fa-telegram',  color: 'bg-sky-600 hover:bg-sky-500',       href: `https://t.me/share/url?url=${enc}&text=${title}` },
-          { label: 'X / Twitter', icon: 'fa-brands fa-x-twitter', color: 'bg-slate-800 hover:bg-slate-700', href: `https://twitter.com/intent/tweet?url=${enc}&text=${title}` },
-          { label: 'Facebook',  icon: 'fa-brands fa-facebook',  color: 'bg-blue-700 hover:bg-blue-600',    href: `https://www.facebook.com/sharer/sharer.php?u=${enc}` },
-          { label: 'Email',     icon: 'fa-solid fa-envelope',   color: 'bg-purple-700 hover:bg-purple-600',href: `mailto:?subject=${title}&body=${enc}` },
-          { label: 'SMS / Text',icon: 'fa-solid fa-comment-sms',color: 'bg-teal-700 hover:bg-teal-600',    href: `sms:?body=${title}%20${enc}` },
-        ];
-        return (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={()=>setShareModalVideo(null)}>
-            <div className="bg-slate-900 border border-white/10 rounded-2xl p-5 w-80 shadow-2xl flex flex-col gap-4" onClick={e=>e.stopPropagation()}>
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-0.5">Share</p>
-                  <p className="text-[13px] font-bold text-white truncate max-w-[200px]">{sv.prompt || 'Video'}</p>
-                </div>
-                <button onClick={()=>setShareModalVideo(null)} className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[11px]"/></button>
-              </div>
-              {/* Share buttons */}
-              <div className="grid grid-cols-3 gap-2">
-                {shareOptions.map(opt=>(
-                  <a key={opt.label} href={opt.href} target="_blank" rel="noreferrer" onClick={()=>setShareModalVideo(null)}
-                    className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl text-white transition-all ${opt.color}`}>
-                    <i className={`${opt.icon} text-[20px]`}/>
-                    <span className="text-[9px] font-black uppercase tracking-wider leading-none">{opt.label}</span>
-                  </a>
-                ))}
-              </div>
-              {/* Copy link */}
-              <button onClick={()=>{ navigator.clipboard.writeText(url); setShareSuccessId(sv.id); setTimeout(()=>{setShareSuccessId(null);setShareModalVideo(null);},1500); }}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border transition-all text-[11px] font-black uppercase tracking-wider ${shareSuccessId===sv.id?'bg-green-600/20 border-green-500/40 text-green-400':'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`}>
-                <i className={`fa-solid ${shareSuccessId===sv.id?'fa-check':'fa-link'} text-[11px]`}/>
-                {shareSuccessId===sv.id ? 'Copied!' : 'Copy Link'}
-              </button>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 };

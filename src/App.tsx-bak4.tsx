@@ -2455,21 +2455,6 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=>{ cancelled=true; if(scTimerRef.current){clearTimeout(scTimerRef.current);scTimerRef.current=null;} };
   },[currentTrack?.id,isPlaying,playNextTrack]);
 
-  // YouTube wall-clock timer — fires even when tab is in background
-  const ytTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-  useEffect(()=>{
-    if(ytTimerRef.current){clearTimeout(ytTimerRef.current);ytTimerRef.current=null;}
-    if(!currentTrack||!isPlaying) return;
-    const url=currentTrack.url||'';
-    if(!url.includes('youtu')) return;
-    let cancelled=false; const t0=Date.now();
-    const vid=url.includes('youtu.be/')?url.split('youtu.be/')[1]?.split(/[?&#]/)[0]
-              :url.includes('v=')?url.split('v=')[1]?.split(/[&#]/)[0]:'';
-    const go=(secs:number)=>{ if(cancelled)return; const w=Math.max(3000,secs*1000-(Date.now()-t0)+4000); ytTimerRef.current=setTimeout(()=>{if(!cancelled)playNextTrack();},w); };
-    if(vid){ fetch('/yt-api/youtube/v3/videos?part=contentDetails&id='+vid+'&key=AIzaSyD8RJ2blSlO3RkrmZhF1Khp6zzLnMrWvKI').then(r=>r.json()).then(d=>{ const iso=d?.items?.[0]?.contentDetails?.duration||''; const m=iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); const s=m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0; go(s>10?s:5*60); }).catch(()=>go(5*60)); } else go(5*60);
-    return ()=>{ cancelled=true; if(ytTimerRef.current){clearTimeout(ytTimerRef.current);ytTimerRef.current=null;} };
-  },[currentTrack?.id,isPlaying,playNextTrack]);
-
   const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
   const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
   const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;setGenres(p=>p.map(g=>g===oldName?n:g));setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
@@ -3194,11 +3179,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
         {/* ── Full-screen visual area ── */}
         <section className="music-visual-section flex-1 flex flex-col bg-transparent overflow-y-auto min-w-0 custom-scrollbar">
           {currentTrack&&(
-            <div style={{position:'fixed',top:0,left:0,width:'1px',height:'1px',overflow:'hidden',opacity:0.001,pointerEvents:'none',zIndex:-1}}>
+            <div className="absolute opacity-0 pointer-events-none w-0 h-0">
               {type==='soundcloud'
                 ? <iframe key={`sc-${currentTrackId}`} id="sc-player" width="1" height="1" scrolling="no" frameBorder="no" allow="autoplay" src={embedUrl}/>
                 : (type as string)!=='audiomack' &&
-                  <iframe key="yt-player" id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
+                  <iframe key={`yt-${currentTrackId}`} id="yt-player" width="1" height="1" src={embedUrl} frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen
                     onLoad={e=>{ try{(e.target as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch{} }}
                   />
               }
