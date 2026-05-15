@@ -3934,6 +3934,7 @@ const App: React.FC = () => {
   }, [triggerSyncSequence]);
 
   useEffect(() => {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') return;
     checkVersion(false);
     const interval = setInterval(() => checkVersion(false), 60000);
     return () => clearInterval(interval);
