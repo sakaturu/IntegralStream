@@ -2198,17 +2198,16 @@ const MusicApp: React.FC<MusicAppProps> = ({
     else { setShowAdminLogin(true); setAdminError(''); setAdminPass(''); }
   };
   const [genres,     setGenres]     = useState<string[]>(()=>{
-    const ver=localStorage.getItem(MUSIC_GENRES_KEY+'_ver');
-    const s=localStorage.getItem(MUSIC_GENRES_KEY);
-    if(ver!==GENRES_VERSION){
-      // Merge saved genres with defaults instead of wiping them
-      const saved: string[] = s ? JSON.parse(s) : [];
-      const merged = Array.from(new Set([...DEFAULT_MUSIC_GENRES, ...saved]));
-      localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(merged));
-      localStorage.setItem(MUSIC_GENRES_KEY+'_ver', GENRES_VERSION);
-      return merged;
-    }
-    return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;
+    try {
+      const s = localStorage.getItem(MUSIC_GENRES_KEY);
+      if (s) {
+        const saved: string[] = JSON.parse(s);
+        // Always merge with defaults so new defaults are picked up, but custom genres are never lost
+        const merged = Array.from(new Set([...DEFAULT_MUSIC_GENRES, ...saved]));
+        return merged;
+      }
+    } catch {}
+    return DEFAULT_MUSIC_GENRES;
   });
   const [genreColors,setGenreColors]= useState<Record<string,string>>(()=>{const s=localStorage.getItem('integral_music_genre_colors_v1');return s?JSON.parse(s):{...DEFAULT_GENRE_COLORS};});
   const [tracks, setTracks] = useState<MusicTrack[]>(()=>{
@@ -2478,9 +2477,10 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=>{ cancelled=true; if(ytTimerRef.current){clearTimeout(ytTimerRef.current);ytTimerRef.current=null;} };
   },[currentTrack?.id,isPlaying,playNextTrack]);
 
-  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;setGenres(p=>[...p,g]);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
-  const handleRemoveGenre=(g:string)=>{setGenres(p=>p.filter(x=>x!==g));if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
-  const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;setGenres(p=>p.map(g=>g===oldName?n:g));setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
+  const saveGenres = (updated: string[]) => { try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(updated)); } catch {} };
+  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;const next=[...genres,g];setGenres(next);saveGenres(next);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
+  const handleRemoveGenre=(g:string)=>{const next=genres.filter(x=>x!==g);setGenres(next);saveGenres(next);if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
+  const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;const next=genres.map(g=>g===oldName?n:g);setGenres(next);saveGenres(next);setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
   const isAddingTrack = useRef(false);
   const dragSrcIdx     = useRef<number>(-1);  // admin track list drag
   const userDragSrcIdx = useRef<number>(-1);  // user track list drag
