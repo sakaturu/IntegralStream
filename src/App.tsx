@@ -3924,7 +3924,11 @@ const App: React.FC = () => {
         if (metaVersionStr) {
           const metaVersion = parseInt(metaVersionStr, 10);
           setCloudVersion(metaVersion);
-          if (metaVersion > LIBRARY_VERSION) triggerSyncSequence();
+          if (metaVersion > LIBRARY_VERSION) {
+            // Don't auto-reload — it wipes localStorage-based state like genres.
+            // Just update the cloud version indicator so the user can manually sync.
+            setCloudVersion(metaVersion);
+          }
         }
       }
     } catch (e) {} finally {
