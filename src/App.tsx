@@ -2199,8 +2199,16 @@ const MusicApp: React.FC<MusicAppProps> = ({
   };
   const [genres,     setGenres]     = useState<string[]>(()=>{
     const ver=localStorage.getItem(MUSIC_GENRES_KEY+'_ver');
-    if(ver!==GENRES_VERSION){localStorage.removeItem(MUSIC_GENRES_KEY);localStorage.setItem(MUSIC_GENRES_KEY+'_ver',GENRES_VERSION);}
-    const s=localStorage.getItem(MUSIC_GENRES_KEY);return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;
+    const s=localStorage.getItem(MUSIC_GENRES_KEY);
+    if(ver!==GENRES_VERSION){
+      // Merge saved genres with defaults instead of wiping them
+      const saved: string[] = s ? JSON.parse(s) : [];
+      const merged = Array.from(new Set([...DEFAULT_MUSIC_GENRES, ...saved]));
+      localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(merged));
+      localStorage.setItem(MUSIC_GENRES_KEY+'_ver', GENRES_VERSION);
+      return merged;
+    }
+    return s?JSON.parse(s):DEFAULT_MUSIC_GENRES;
   });
   const [genreColors,setGenreColors]= useState<Record<string,string>>(()=>{const s=localStorage.getItem('integral_music_genre_colors_v1');return s?JSON.parse(s):{...DEFAULT_GENRE_COLORS};});
   const [tracks, setTracks] = useState<MusicTrack[]>(()=>{
