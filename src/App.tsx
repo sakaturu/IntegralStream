@@ -2197,15 +2197,16 @@ const MusicApp: React.FC<MusicAppProps> = ({
     if(isAuthorized){ handleAdminLogout(); }
     else { setShowAdminLogin(true); setAdminError(''); setAdminPass(''); }
   };
+  const DELETED_GENRES_KEY = 'integral_deleted_genres_v1';
+  const getDeletedGenres = (): string[] => { try { return JSON.parse(localStorage.getItem(DELETED_GENRES_KEY)||'[]'); } catch { return []; } };
   const [genres,     setGenres]     = useState<string[]>(()=>{
     try {
+      const deleted = getDeletedGenres();
       const s = localStorage.getItem(MUSIC_GENRES_KEY);
-      if (s) {
-        const saved: string[] = JSON.parse(s);
-        // Always merge with defaults so new defaults are picked up, but custom genres are never lost
-        const merged = Array.from(new Set([...DEFAULT_MUSIC_GENRES, ...saved]));
-        return merged;
-      }
+      const saved: string[] = s ? JSON.parse(s) : [];
+      // Merge defaults with saved, but exclude anything the user has deleted
+      const merged = Array.from(new Set([...DEFAULT_MUSIC_GENRES.filter(g => !deleted.includes(g)), ...saved.filter(g => !deleted.includes(g))]));
+      return merged;
     } catch {}
     return DEFAULT_MUSIC_GENRES;
   });
@@ -2478,8 +2479,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
   },[currentTrack?.id,isPlaying,playNextTrack]);
 
   const saveGenres = (updated: string[]) => { try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(updated)); } catch {} };
-  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;const next=[...genres,g];setGenres(next);saveGenres(next);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
-  const handleRemoveGenre=(g:string)=>{const next=genres.filter(x=>x!==g);setGenres(next);saveGenres(next);if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
+  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;const next=[...genres,g];setGenres(next);saveGenres(next);// Remove from deleted list if re-adding a previously deleted default
+try{const del=getDeletedGenres().filter(x=>x!==g);localStorage.setItem(DELETED_GENRES_KEY,JSON.stringify(del));}catch{}
+setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
+  const handleRemoveGenre=(g:string)=>{const next=genres.filter(x=>x!==g);setGenres(next);saveGenres(next);// Track deleted so it is not re-added from defaults on next load
+try{const del=[...new Set([...getDeletedGenres(),g])];localStorage.setItem(DELETED_GENRES_KEY,JSON.stringify(del));}catch{}
+if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
   const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;const next=genres.map(g=>g===oldName?n:g);setGenres(next);saveGenres(next);setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
   const isAddingTrack = useRef(false);
   const dragSrcIdx     = useRef<number>(-1);  // admin track list drag
