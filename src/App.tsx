@@ -11,6 +11,8 @@ import {
   loadVideosFromFirestore, saveVideosToFirestore, subscribeToVideos,
   loadMusicFromFirestore, saveMusicToFirestore, subscribeToMusic,
   loadMusicReviewsFromFirestore, saveMusicReviewsToFirestore,
+  loadGenresFromFirestore, saveGenresToFirestore,
+  loadDeletedGenresFromFirestore, saveDeletedGenresToFirestore,
 } from './services/firebase';
 
 
@@ -2203,11 +2205,13 @@ const MusicApp: React.FC<MusicAppProps> = ({
     try {
       const deleted = getDeletedGenres();
       const s = localStorage.getItem(MUSIC_GENRES_KEY);
-      const saved: string[] = s ? JSON.parse(s) : [];
-      // Merge defaults with saved, but exclude anything the user has deleted
-      const merged = Array.from(new Set([...DEFAULT_MUSIC_GENRES.filter(g => !deleted.includes(g)), ...saved.filter(g => !deleted.includes(g))]));
-      return merged;
+      if (s) {
+        // Use saved genres directly, just filter out deleted ones
+        const saved: string[] = JSON.parse(s);
+        return Array.from(new Set(saved.filter(g => !deleted.includes(g))));
+      }
     } catch {}
+    // First ever load — use defaults
     return DEFAULT_MUSIC_GENRES;
   });
   const [genreColors,setGenreColors]= useState<Record<string,string>>(()=>{const s=localStorage.getItem('integral_music_genre_colors_v1');return s?JSON.parse(s):{...DEFAULT_GENRE_COLORS};});
@@ -2268,6 +2272,22 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [crossfading, setCrossfading] = useState(false);
   const [vizInitialMode, setVizInitialMode] = useState(0);
   const [vizAutoStart, setVizAutoStart] = useState(false);
+
+  // ── Firestore: load genres on mount ─────────────────────────────────────────
+  useEffect(()=>{
+    Promise.all([loadGenresFromFirestore(), loadDeletedGenresFromFirestore()]).then(([remoteGenres, remoteDeleted]) => {
+      const deleted: string[] = remoteDeleted || [];
+      if (remoteGenres && remoteGenres.length > 0) {
+        // Use remote genres directly — no re-merge with defaults to avoid duplicates
+        const clean = Array.from(new Set(remoteGenres.filter((g:string) => !deleted.includes(g))));
+        setGenres(clean);
+        try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(clean)); } catch {}
+      }
+      if (deleted.length > 0) {
+        try { localStorage.setItem('integral_deleted_genres_v1', JSON.stringify(deleted)); } catch {}
+      }
+    });
+  }, []);
 
   // ── Firestore: load music on mount ──────────────────────────────────────────
   const cleanTitle = (t: any) => sanitiseTrack(t);
@@ -2478,14 +2498,18 @@ const MusicApp: React.FC<MusicAppProps> = ({
     return ()=>{ cancelled=true; if(ytTimerRef.current){clearTimeout(ytTimerRef.current);ytTimerRef.current=null;} };
   },[currentTrack?.id,isPlaying,playNextTrack]);
 
-  const saveGenres = (updated: string[]) => { try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(updated)); } catch {} };
-  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;const next=[...genres,g];setGenres(next);saveGenres(next);// Remove from deleted list if re-adding a previously deleted default
-try{const del=getDeletedGenres().filter(x=>x!==g);localStorage.setItem(DELETED_GENRES_KEY,JSON.stringify(del));}catch{}
-setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
-  const handleRemoveGenre=(g:string)=>{const next=genres.filter(x=>x!==g);setGenres(next);saveGenres(next);// Track deleted so it is not re-added from defaults on next load
-try{const del=[...new Set([...getDeletedGenres(),g])];localStorage.setItem(DELETED_GENRES_KEY,JSON.stringify(del));}catch{}
-if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
-  const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;const next=genres.map(g=>g===oldName?n:g);setGenres(next);saveGenres(next);setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
+  const saveGenres = (updated: string[]) => {
+    try { localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(updated)); } catch {}
+    saveGenresToFirestore(updated);
+  };
+  const saveDeletedGenres = (deleted: string[]) => {
+    try { localStorage.setItem(DELETED_GENRES_KEY, JSON.stringify(deleted)); } catch {}
+    saveDeletedGenresToFirestore(deleted);
+  };
+  const handleAddGenre=()=>{const g=newGenre.trim();if(!g||genres.includes(g))return;const next=[...genres,g];setGenres(next);saveGenres(next);const del=getDeletedGenres().filter(x=>x!==g);saveDeletedGenres(del);setGenreColors(p=>({...p,[g]:newGenreColor}));setNewGenre('');setShowAddGenreForm(false);};
+  const handleRemoveGenre=(g:string)=>{const next=genres.filter(x=>x!==g);setGenres(next);saveGenres(next);const del=[...new Set([...getDeletedGenres(),g])];saveDeletedGenres(del);if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g));};
+  const handleRenameGenre=(oldName:string,newName:string)=>{const n=newName.trim();if(!n||n===oldName)return;const next=genres.map(g=>g===oldName?n:g);setGenres(next);saveGenres(next);// Update deleted list: remove old name, keep new name out of deleted
+const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del);setGenreColors(p=>{const c={...p};if(c[oldName]){c[n]=c[oldName];delete c[oldName];}return c;});setTracks(p=>p.map(t=>t.category===oldName?{...t,category:n}:t));if(activeTab===oldName)setActiveTab(n as any);setSelectedGenresSafe(p=>p.map(g=>g===oldName?n:g));setRenamingGenre(null);};
   const isAddingTrack = useRef(false);
   const dragSrcIdx     = useRef<number>(-1);  // admin track list drag
   const userDragSrcIdx = useRef<number>(-1);  // user track list drag
@@ -2812,7 +2836,7 @@ if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g)
         </Tooltip>
         {del&&<button onClick={e=>{e.stopPropagation();handleRemoveGenre(tab.name);}} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer"><i className="fa-solid fa-xmark text-[8px]"/></button>}
         {del&&<button onClick={e=>{e.stopPropagation();setRenamingGenre(tab.name);setRenameGenreVal(tab.name);}} className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-purple-600 text-white flex items-center justify-center opacity-0 group-hover/tab:opacity-100 transition-opacity z-10 hover:scale-125 shadow-lg border border-white/20 cursor-pointer" title="Rename genre"><i className="fa-solid fa-pen text-[7px]"/></button>}
-        {del&&renamingGenre===tab.name&&(<div className="absolute top-full mt-1 left-0 z-50 flex gap-1 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl" onClick={e=>e.stopPropagation()}><input autoFocus value={renameGenreVal} onChange={e=>setRenameGenreVal(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')handleRenameGenre(tab.name,renameGenreVal);if(e.key==='Escape')setRenamingGenre(null);}} className="h-6 w-24 px-2 rounded-lg bg-white/5 border border-purple-500/30 text-white text-[9px] font-bold focus:outline-none"/><button onClick={()=>handleRenameGenre(tab.name,renameGenreVal)} className="h-6 px-2 rounded-lg bg-purple-600 text-white text-[8px] font-black uppercase hover:bg-purple-500">OK</button><button onClick={()=>setRenamingGenre(null)} className="h-6 px-1.5 rounded-lg bg-white/5 text-slate-400 text-[8px] hover:text-white">✕</button></div>)}
+        {del&&renamingGenre===tab.name&&(<div className="absolute top-full mt-1 left-0 z-50 flex gap-1 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl" onMouseDown={e=>e.stopPropagation()}><input autoFocus value={renameGenreVal} onChange={e=>setRenameGenreVal(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')handleRenameGenre(tab.name,renameGenreVal);if(e.key==='Escape')setRenamingGenre(null);}} className="h-6 w-24 px-2 rounded-lg bg-white/5 border border-purple-500/30 text-white text-[9px] font-bold focus:outline-none"/><button onMouseDown={()=>handleRenameGenre(tab.name,renameGenreVal)} className="h-6 px-2 rounded-lg bg-purple-600 text-white text-[8px] font-black uppercase hover:bg-purple-500">OK</button><button onMouseDown={()=>setRenamingGenre(null)} className="h-6 px-1.5 rounded-lg bg-white/5 text-slate-400 text-[8px] hover:text-white">✕</button></div>)}
       </div>
     );
   };
@@ -3094,7 +3118,7 @@ if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g)
                         {isAuthorized ? (
                           <>
                             <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
-                            <button onClick={e=>{e.stopPropagation();setUserTracks(p=>p.map(t=>t.id===track.id?{...t,isFavorite:!t.isFavorite}:t));}} className="w-6 h-6 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-pink-500 hover:text-white transition-all" title="Toggle Favorite"><i className="fa-solid fa-heart text-[11px]"/></button>
+                            <button onClick={e=>{e.stopPropagation();setGenres(p=>p.includes('Favorite')?p:[...p,'Favorite']);setUserTracks(p=>p.map(t=>t.id===track.id?{...t,category:'Favorite'}:t));}} className="w-6 h-6 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[11px]"/></button>
                             <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
                           </>
                         ) : (
@@ -3179,7 +3203,7 @@ if(activeTab===g)setActiveTab('All');setSelectedGenresSafe(p=>p.filter(x=>x!==g)
                       /* Admin: edit + favorite + delete */
                       <>
                         <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all"><i className="fa-solid fa-pen text-[7px]"/></button>
-                        <button onClick={e=>{e.stopPropagation();setTracks(p=>p.map(t=>t.id===track.id?{...t,isFavorite:!t.isFavorite}:t));}} className="absolute top-1/2 -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-pink-500 hover:text-white transition-all" title="Toggle Favorite"><i className="fa-solid fa-heart text-[7px]"/></button>
+                        <button onClick={e=>{e.stopPropagation();setGenres(p=>p.includes('Favorite')?p:[...p,'Favorite']);setTracks(p=>p.map(t=>t.id===track.id?{...t,category:'Favorite'}:t));}} className="absolute top-1/2 -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[7px]"/></button>
                         <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
                       </>
                     ) : (

@@ -116,3 +116,46 @@ export async function saveMusicReviewsToFirestore(reviews: any[]): Promise<void>
     console.warn('[Firestore] saveReviews failed', e);
   }
 }
+
+// ─── Music genres ─────────────────────────────────────────────────────────────
+const GENRES_REF = () => doc(db, 'library', 'musicGenres');
+
+export async function loadGenresFromFirestore(): Promise<string[] | null> {
+  try {
+    const snap = await getDoc(GENRES_REF());
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return data?.genres ?? null;
+  } catch (e) {
+    console.warn('[Firestore] loadGenres failed', e);
+    return null;
+  }
+}
+
+export async function saveGenresToFirestore(genres: string[]): Promise<void> {
+  try {
+    await setDoc(GENRES_REF(), { genres, updatedAt: Date.now() }, { merge: true });
+  } catch (e) {
+    console.warn('[Firestore] saveGenres failed', e);
+  }
+}
+
+export async function loadDeletedGenresFromFirestore(): Promise<string[] | null> {
+  try {
+    const snap = await getDoc(GENRES_REF());
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return data?.deletedGenres ?? null;
+  } catch (e) {
+    console.warn('[Firestore] loadDeletedGenres failed', e);
+    return null;
+  }
+}
+
+export async function saveDeletedGenresToFirestore(deleted: string[]): Promise<void> {
+  try {
+    await setDoc(GENRES_REF(), { deletedGenres: deleted, updatedAt: Date.now() }, { merge: true });
+  } catch (e) {
+    console.warn('[Firestore] saveDeletedGenres failed', e);
+  }
+}
