@@ -16,7 +16,7 @@ import {
 } from './services/firebase';
 
 
-const DEFAULT_MUSIC_GENRES = ['Affirmations', 'Celestial Meditation', 'Classical', 'Country', 'Dance', 'Drum-N-Bass', 'Electronic', 'Enviro-Nature', 'FAV', 'Guided Meditation', 'Hip-Hop', 'Inspirational', 'Integral Serenity', 'Jazz', 'Lounge', 'Multi-Lang', 'Odd', 'Other', 'Pop', 'Rock', 'Silent Meditation', 'Spanish', 'Spiritual'];
+const DEFAULT_MUSIC_GENRES = ['Affirmations', 'Celestial Meditation', 'Classical', 'Country', 'Dance', 'Drum-N-Bass', 'Electronic', 'Enviro-Nature', 'FAVORITES', 'Guided Meditation', 'Hip-Hop', 'Inspirational', 'Integral Serenity', 'Jazz', 'Lounge', 'Multi-Lang', 'Odd', 'Other', 'Pop', 'Rock', 'Silent Meditation', 'Spanish', 'Spiritual'];
 const GENRES_VERSION = 'v3';
 const MUSIC_GENRES_KEY     = 'integral_music_genres_v1';
 const MUSIC_REVIEWS_KEY    = 'integral_music_reviews_v1';
@@ -2201,6 +2201,20 @@ const MusicApp: React.FC<MusicAppProps> = ({
   };
   const DELETED_GENRES_KEY = 'integral_deleted_genres_v1';
   const getDeletedGenres = (): string[] => { try { return JSON.parse(localStorage.getItem(DELETED_GENRES_KEY)||'[]'); } catch { return []; } };
+  // ── Favorites stored independently of tracks ──────────────────────────────
+  const FAV_IDS_KEY = 'integral_fav_ids_v1';
+  const getFavIds = (): Set<string> => {
+    try { return new Set(JSON.parse(localStorage.getItem(FAV_IDS_KEY)||'[]')); } catch { return new Set(); }
+  };
+  const [favTick, setFavTick] = useState(0); // increment to force re-render
+  const favIds = React.useMemo(() => getFavIds(), [favTick]);
+  const toggleFav = (id: string) => {
+    const ids = getFavIds();
+    if (ids.has(id)) { ids.delete(id); } else { ids.add(id); }
+    try { localStorage.setItem(FAV_IDS_KEY, JSON.stringify([...ids])); } catch {}
+    setFavTick(t => t + 1);
+  };
+
   const [genres,     setGenres]     = useState<string[]>(()=>{
     try {
       const deleted = getDeletedGenres();
@@ -2226,15 +2240,20 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const [isShuffleMode, setIsShuffleMode] = useState(false);
   const isShuffleModeRef = useRef(false);
   const [isPlaying,  setIsPlaying]  = useState(false);
-  const [activeTab,  setActiveTab]  = useState('All');
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [activeTab, setActiveTabRaw] = useState(()=>{ try { return localStorage.getItem('integral_active_tab_v1')||'All'; } catch { return 'All'; } });
+  const setActiveTab = (tab: any) => { setActiveTabRaw(tab); try { localStorage.setItem('integral_active_tab_v1', String(tab)); } catch {} };
+  const [selectedGenres, setSelectedGenresRaw] = useState<string[]>(()=>{ try { return JSON.parse(localStorage.getItem('integral_selected_genres_v1')||'[]'); } catch { return []; } });
   const selectedGenresRef = React.useRef<string[]>([]);
-  const setSelectedGenresSafe = (fn: (p: string[]) => string[]) => {
-    setSelectedGenres(p => {
-      const next = fn(p);
+  const setSelectedGenres = (val: any) => {
+    setSelectedGenresRaw(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
       selectedGenresRef.current = next;
+      try { localStorage.setItem('integral_selected_genres_v1', JSON.stringify(next)); } catch {}
       return next;
     });
+  };
+  const setSelectedGenresSafe = (fn: (p: string[]) => string[]) => {
+    setSelectedGenres((p: string[]) => fn(p));
   };
   const [search,     setSearch]     = useState('');
   const [showAddForm,setShowAddForm]= useState(false);
@@ -2289,21 +2308,58 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
   }, []);
 
+  // ── One-time migration: fix tracks stuck in 'Favorite' category ─────────────
+  useEffect(()=>{
+    try {
+      const raw = localStorage.getItem(SHARED_MUSIC_KEY);
+      if (raw) {
+        const tracks = JSON.parse(raw);
+        const needsFix = tracks.some((t:any) => t.category === 'Favorite' || t.category === 'FAVorites');
+        if (needsFix) {
+          const fixed = tracks.map((t:any) =>
+            (t.category === 'Favorite' || t.category === 'FAVorites')
+              ? {...t, category: 'Inspirational', isFavorite: true}
+              : t
+          );
+          localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(fixed));
+          setTracks(fixed);
+          saveMusicToFirestore(fixed);
+        }
+      }
+      // Also clean up 'Favorite'/'FAVorites' from genre list
+      const genreRaw = localStorage.getItem(MUSIC_GENRES_KEY);
+      if (genreRaw) {
+        const genres = JSON.parse(genreRaw);
+        if (genres.includes('Favorite') || genres.includes('FAVorites') || genres.includes('FAV')) {
+          const cleaned = genres.filter((g:string) => g !== 'Favorite' && g !== 'FAVorites' && g !== 'FAV');
+          localStorage.setItem(MUSIC_GENRES_KEY, JSON.stringify(cleaned));
+          setGenres(cleaned);
+          saveGenresToFirestore(cleaned);
+        }
+      }
+    } catch {}
+  }, []);
+
   // ── Firestore: load music on mount ──────────────────────────────────────────
   const cleanTitle = (t: any) => sanitiseTrack(t);
   useEffect(()=>{
     loadMusicFromFirestore().then(remote => {
       if (remote && remote.length > 0) {
         const cleaned = remote.map(sanitiseTrack);
-        setTracks(cleaned);
-        try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(cleaned)); } catch {}
+        // Preserve isFavorite flags from localStorage — they may be newer than Firestore
+        const local: any[] = (() => { try { return JSON.parse(localStorage.getItem(SHARED_MUSIC_KEY)||'[]'); } catch { return []; } })();
+        const localFavMap: Record<string,boolean> = {};
+        local.forEach((t:any) => { if (t.isFavorite) localFavMap[t.id] = true; });
+        const merged = cleaned.map((t:any) => localFavMap[t.id] ? {...t, isFavorite: true} : t);
+        setTracks(merged);
+        try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(merged)); } catch {}
         // Immediately overwrite bad data in Firestore
         const hadBadData = remote.some((tr:any) => {
           const url = tr.url||'';
           return url.includes('<') || url.includes('iframe') ||
                  (tr.artist||'').includes('<') || (tr.title||'').toLowerCase() === 'song';
         });
-        if (hadBadData) saveMusicToFirestore(cleaned);
+        if (hadBadData) saveMusicToFirestore(merged);
       }
     });
     loadMusicReviewsFromFirestore().then(remote => {
@@ -2314,11 +2370,12 @@ const MusicApp: React.FC<MusicAppProps> = ({
     });
     // Live updates from other users
     const unsubTracks = subscribeToMusic(remote => {
-      const cleaned = remote.map(sanitiseTrack);
-      if (Date.now() - _lastLocalSave.current < 5000) return;
+      // Never restore deleted tracks
+      const cleaned = remote.map(sanitiseTrack).filter((t:any) => !_deletedTrackIds.current.has(t.id));
+      if (Date.now() - _lastLocalSave.current < 30000) return;
       setTracks(prev => {
         const remoteIds = new Set(cleaned.map((t:any) => t.id));
-        const localOnly = prev.filter(t => !remoteIds.has(t.id));
+        const localOnly = prev.filter((t:any) => !remoteIds.has(t.id) && !_deletedTrackIds.current.has(t.id));
         const merged = localOnly.length > 0 ? [...localOnly, ...cleaned] : cleaned;
         try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(merged)); } catch {}
         return merged;
@@ -2335,7 +2392,8 @@ const MusicApp: React.FC<MusicAppProps> = ({
 
   // ── Firestore: save music on change (debounced 1.5s) ─────────────────────
   useEffect(()=>{
-    const clean = tracks.map(sanitiseTrack);
+    // Always filter out deleted IDs before saving
+    const clean = tracks.filter(t => !_deletedTrackIds.current.has(t.id)).map(sanitiseTrack);
     const t = setTimeout(()=>{ _lastLocalSave.current = Date.now(); saveMusicToFirestore(clean); }, 1500);
     // Also keep localStorage in sync as fallback
     try {
@@ -2376,12 +2434,24 @@ const MusicApp: React.FC<MusicAppProps> = ({
   useEffect(()=>{localStorage.setItem('integral_music_genre_colors_v1',JSON.stringify(genreColors));},[genreColors]);
 
   const currentTrack=useMemo(()=>tracks.find(t=>t.id===currentTrackId)||userTracks.find(t=>t.id===currentTrackId)||null,[tracks,userTracks,currentTrackId]);
-  const filteredTracks=useMemo(()=>tracks.filter(t=>{
-    if(t.addedBy) return false;
-    if(activeTab==='Vault') return t.isFavorite;
-    if(selectedGenres.length>0&&!selectedGenres.includes(t.category)) return false;
-    return search===''||t.artist.toLowerCase().includes(search.toLowerCase())||t.title.toLowerCase().includes(search.toLowerCase());
-  }),[tracks,activeTab,selectedGenres,search]);
+  const filteredTracks=useMemo(()=>{
+    const isFavTab = activeTab==='FAVORITES' || activeTab==='Vault' || selectedGenres.includes('FAVORITES');
+    if(isFavTab) {
+      // Return tracks in favIds order
+      const favIdsOrdered = [...getFavIds()];
+      const favMap = new Map(tracks.map(t => [t.id, t]));
+      const ordered = favIdsOrdered.map(id => favMap.get(id)).filter(Boolean) as any[];
+      // Also include tracks with isFavorite that aren't in favIds
+      const extras = tracks.filter(t => t.isFavorite && !getFavIds().has(t.id));
+      return [...ordered, ...extras];
+    }
+    return tracks.filter(t=>{
+      if(t.addedBy) return false;
+      const nonFavGenres = selectedGenres.filter((g:string) => g !== 'FAVORITES');
+      if(nonFavGenres.length>0&&!nonFavGenres.includes(t.category)) return false;
+      return search===''||t.artist.toLowerCase().includes(search.toLowerCase())||t.title.toLowerCase().includes(search.toLowerCase());
+    });
+  },[tracks,activeTab,selectedGenres,search,favTick]);
 
   const pendingReviews=useMemo(()=>reviews.filter(r=>!r.approved),[reviews]);
   const approvedReviews=useMemo(()=>reviews.filter(r=>r.approved),[reviews]);
@@ -2399,6 +2469,11 @@ const MusicApp: React.FC<MusicAppProps> = ({
   const trackListRef = useRef<HTMLDivElement>(null);
   const _tracksRef = useRef<MusicTrack[]>([]);
   const _lastLocalSave = useRef<number>(0);
+  const _deletedTrackIds = useRef<Set<string>>(new Set<string>((() => { try { return JSON.parse(localStorage.getItem('integral_deleted_track_ids_v1')||'[]'); } catch { return []; } })()));
+  const addDeletedTrackId = (id: string) => {
+    _deletedTrackIds.current.add(id);
+    try { localStorage.setItem('integral_deleted_track_ids_v1', JSON.stringify([..._deletedTrackIds.current])); } catch {}
+  };
   const _userTracksRef = useRef<MusicTrack[]>([]);
   useEffect(()=>{ isShuffleModeRef.current = isShuffleMode; }, [isShuffleMode]);
   useEffect(()=>{
@@ -2517,6 +2592,16 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
   // Reorder admin/shared tracks by dragging
   const handleDragReorder = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
+    // Special handling for FAVORITES tab — reorder the favIdsArr
+    if (activeTab === 'FAVORITES') {
+      const currentFavIds = [...getFavIds()];
+      if (fromIdx < 0 || toIdx < 0 || fromIdx >= currentFavIds.length || toIdx >= currentFavIds.length) return;
+      const [moved] = currentFavIds.splice(fromIdx, 1);
+      currentFavIds.splice(toIdx, 0, moved);
+      try { localStorage.setItem(FAV_IDS_KEY, JSON.stringify(currentFavIds)); } catch {}
+      setFavTick(t => t + 1);
+      return;
+    }
     setTracks(prev => {
       const filtered = prev.filter(t => {
         if (activeTab === 'Vault') return t.isFavorite;
@@ -2685,10 +2770,17 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
     isAddingTrack.current=false;
   };
   const handleRemoveTrack=(id:string)=>{
+    addDeletedTrackId(id);
     const newUserTracks = userTracks.filter(t=>t.id!==id);
     setUserTracks(newUserTracks);
     saveUserTracks(newUserTracks);
-    setTracks(p=>p.filter(t=>t.id!==id));
+    setTracks(p=>{
+      const next=p.filter(t=>t.id!==id);
+      _lastLocalSave.current=Date.now();
+      saveMusicToFirestore(next);
+      try { localStorage.setItem(SHARED_MUSIC_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
     if(currentTrackId===id){setCurrentTrackId(undefined);setIsPlaying(false);}
     setConfirmDeleteId(null);
   };
@@ -2798,7 +2890,7 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
   const renderTab=(tab:{name:string})=>{
     const del=isAuthorized&&!['All','Vault'].includes(tab.name);
     const count = tab.name==='All' ? tracks.length
-                : tab.name==='Vault' ? tracks.filter(t=>t.isFavorite).length
+                : tab.name==='Vault' ? tracks.filter(t=>t.isFavorite||favIds.has(t.id)).length : tab.name==='FAVORITES' ? favIds.size
                 : tracks.filter(t=>t.category===tab.name).length;
     const tipLabel = `${tab.name} · ${count} track${count!==1?'s':''}`;
     // Shorten long display names so they fit the narrow grid cell
@@ -2828,6 +2920,7 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
   const next = current.includes(name) ? current.filter(x => x !== name) : [...current, name];
   selectedGenresRef.current = next;
   setSelectedGenres(next);
+  setActiveTab(next.length === 1 ? name as any : 'All');
 }
           }} style={(()=>{const c2=getTabColor(tab.name),active=(tab.name==='All'&&activeTab==='All'&&selectedGenres.length===0)||(tab.name==='Vault'&&activeTab==='Vault')||(tab.name!=='All'&&tab.name!=='Vault'&&selectedGenres.includes(tab.name));return active?{color:c2,backgroundColor:`${c2}25`,borderColor:`${c2}50`,transform:'scale(1.02)'}:{color:`${c2}90`,borderColor:'rgba(0,0,0,0)',backgroundColor:'rgba(0,0,0,0)'};})()}
             className="w-full h-7 rounded-lg text-[9px] font-black uppercase tracking-normal transition-all flex items-center justify-center px-1 border cursor-pointer">
@@ -3118,8 +3211,8 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
                         {isAuthorized ? (
                           <>
                             <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-purple-400 transition-all" title="Edit"><i className="fa-solid fa-pen text-[11px]"/></button>
-                            <button onClick={e=>{e.stopPropagation();setGenres(p=>p.includes('Favorite')?p:[...p,'Favorite']);setUserTracks(p=>p.map(t=>t.id===track.id?{...t,category:'Favorite'}:t));}} className="w-6 h-6 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[11px]"/></button>
-                            <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
+                            <button onClick={e=>{e.stopPropagation();toggleFav(track.id);}} className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${favIds.has(track.id)?'bg-pink-500/20 border border-pink-500/40 text-pink-400 hover:bg-red-500':'bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500'} hover:text-white`} title={favIds.has(track.id)?'Remove from Favorites':'Add to Favorites'}><i className={`fa-solid ${favIds.has(track.id)?'fa-heart':'fa-plus'} text-[11px]`}/></button>
+                            <button onClick={e=>{e.stopPropagation();if(activeTab==='FAVORITES'){toggleFav(track.id);}else{setConfirmDeleteId(track.id);}}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title={activeTab==='FAVORITES'?'Remove from Favorites':'Delete'}><i className="fa-solid fa-xmark text-[15px]"/></button>
                           </>
                         ) : (
                           <>
@@ -3128,7 +3221,7 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
                               ? <button className="w-6 h-6 flex items-center justify-center cursor-default text-yellow-400" title="Already reviewed"><i className="fa-solid fa-star text-[15px]"/></button>
                               : <button onClick={e=>{e.stopPropagation();if(!isUserLocked){onPendingReview();return;}handleSelectTrack(track);setReviewingTrackId(track.id);setShowMusicReviews(true);}} className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-yellow-400 transition-all" title="Review"><i className="fa-regular fa-star text-[15px]"/></button>}
                             <button onClick={e=>{e.stopPropagation();if(!isUserLocked){onPendingReview();return;}handleToggleFavorite(track.id,e);}} className={`w-6 h-6 flex items-center justify-center transition-all ${track.isFavorite?'text-pink-400':'text-slate-600 hover:text-pink-400'}`} title="Add to vault"><i className={`fa-${track.isFavorite?'solid':'regular'} fa-heart text-[15px]`}/></button>
-                            <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Delete"><i className="fa-solid fa-xmark text-[15px]"/></button>
+                            <button onClick={e=>{e.stopPropagation();if(activeTab==='FAVORITES'){toggleFav(track.id);}else{setConfirmDeleteId(track.id);}}} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title={activeTab==='FAVORITES'?'Remove from Favorites':'Delete'}><i className="fa-solid fa-xmark text-[15px]"/></button>
                           </>
                         )}
                       </div>
@@ -3203,8 +3296,8 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
                       /* Admin: edit + favorite + delete */
                       <>
                         <button onClick={e=>{e.stopPropagation();setEditingTrackId(track.id);setEditArtist(track.artist);setEditTitle(track.title);setEditCategory(track.category);setEditUrl(track.url||"");setEditThumbnail(track.thumbnail||"");}} className="absolute top-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-500 hover:bg-purple-500/20 hover:border-purple-500/40 hover:text-purple-400 transition-all"><i className="fa-solid fa-pen text-[7px]"/></button>
-                        <button onClick={e=>{e.stopPropagation();setGenres(p=>p.includes('Favorite')?p:[...p,'Favorite']);setTracks(p=>p.map(t=>t.id===track.id?{...t,category:'Favorite'}:t));}} className="absolute top-1/2 -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all" title="Add to Favorite"><i className="fa-solid fa-plus text-[7px]"/></button>
-                        <button onClick={e=>{e.stopPropagation();setConfirmDeleteId(track.id);}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-xmark text-[9px]"/></button>
+                        <button onClick={e=>{e.stopPropagation();toggleFav(track.id);}} className={`absolute top-1/2 -translate-y-1/2 left-0 w-5 h-5 flex items-center justify-center rounded-full transition-all ${favIds.has(track.id)?'bg-pink-500/20 border border-pink-500/40 text-pink-400 hover:bg-red-500':'bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500'} hover:text-white`} title={favIds.has(track.id)?'Remove from Favorites':'Add to Favorites'}><i className={`fa-solid ${favIds.has(track.id)?'fa-heart':'fa-plus'} text-[7px]`}/></button>
+                        <button onClick={e=>{e.stopPropagation();if(activeTab==='FAVORITES'){toggleFav(track.id);}else{setConfirmDeleteId(track.id);}}} className="absolute bottom-[3px] left-0 w-5 h-5 flex items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white transition-all" title={activeTab==='FAVORITES'?'Remove from Favorites':'Delete'}><i className="fa-solid fa-xmark text-[9px]"/></button>
                       </>
                     ) : (
                       /* User: star/review + like + heart + delete if own track */
@@ -3279,7 +3372,7 @@ const del=getDeletedGenres().filter(x=>x!==oldName&&x!==n);saveDeletedGenres(del
                             ? {color:c, backgroundColor:`${c}25`, borderColor:`${c}50`}
                             : {color:'#ffffff', borderColor:'rgba(255,255,255,0.08)', backgroundColor:'transparent'}}
                         >
-                          <span className="opacity-0 group-hover/mtab:opacity-100 text-[7px] group-hover/mtab:text-[9px] font-black mr-0.5 transition-all duration-150">{tab.name==="All"?tracks.length:tab.name==="Vault"?tracks.filter(t=>t.isFavorite).length:tracks.filter(t=>t.category===tab.name).length}</span>{tab.name}
+                          <span className="opacity-0 group-hover/mtab:opacity-100 text-[7px] group-hover/mtab:text-[9px] font-black mr-0.5 transition-all duration-150">{tab.name==="All"?tracks.length:tab.name==="Vault"?tracks.filter(t=>t.isFavorite||favIds.has(t.id)).length:tab.name==="FAVORITES"?favIds.size:tracks.filter(t=>t.category===tab.name).length}</span>{tab.name}
                         </button>
                         {isAuthorized && !['All','Vault'].includes(tab.name) && (
                           <button
@@ -3766,7 +3859,8 @@ const App: React.FC = () => {
     return mergedMap;
   });
 
-  const [showMusic, setShowMusic] = useState(false);
+  const [showMusic, setShowMusicRaw] = useState(()=>{ try { return localStorage.getItem('integral_show_music_v1')==='1'; } catch { return false; } });
+  const setShowMusic = (v: boolean) => { setShowMusicRaw(v); try { localStorage.setItem('integral_show_music_v1', v?'1':'0'); } catch {} };
   const [showUserPlaylist, setShowUserPlaylist] = useState(false);
   const openMusicWithPlaylist = () => {
     setShowMusic(true);
